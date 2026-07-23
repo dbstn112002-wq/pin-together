@@ -43,3 +43,13 @@
   #addPinButton:after{content:'+'}
   #measureCard{bottom:calc(env(safe-area-inset-bottom) + 56px);width:calc(100% - 18px)}
 }
+
+/* Keep the mobile chat composer above the map and disable map controls while the side panel is open. */
+#chatPanel{display:flex;flex-direction:column;overflow:hidden}
+#chatPanel #messages{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scroll-padding-bottom:12px;padding-right:2px}
+#chatPanel #messageForm{flex:0 0 auto;background:#fff;padding-bottom:max(8px,env(safe-area-inset-bottom))}
+@media (max-width:760px){
+  .app aside.open + .map-wrap .map-top,
+  .app aside.open + .map-wrap .map-actions,
+  .app aside.open + .map-wrap #measureCard{pointer-events:none;opacity:0}
+}
