@@ -7,7 +7,7 @@
 - 공개 사이트: https://dry-butterfly-8a6f.ponr011.workers.dev
 - Cloudflare Workers Static Assets 프로젝트: `dry-butterfly-8a6f`
 - GitHub 비공개 저장소: https://github.com/dbstn112002-wq/pin-together
-- 현재 Git 커밋 기준: `8de3002 Show pin author in map popup`
+- 현재 Git 커밋 기준: `eae9e90 Store multiple shared routes and expand activity alerts`
 - 배포는 `webapp` 폴더에서 `npx.cmd wrangler deploy`로 수행한다.
 
 ## 주요 파일
@@ -30,6 +30,7 @@
   - Master1 닉네임은 `sessionStorage`에 저장한다. 같은 탭 새로고침에는 다시 묻지 않고, 탭 종료 또는 로그아웃 후 재접속 시 다시 입력한다.
 - 공간 생성, 초대, 참가, 공간 삭제, 핀/태그/메모/즐겨찾기/댓글
 - 경로 지정 및 다른 멤버와 경로 공유
+- 경로 지정할 때마다 기존 경로를 덮어쓰지 않고 `경로 1`, `경로 2`처럼 새 항목으로 추가
 - 채팅, 읽음 표시, 알림 종 숫자 및 사이트 내부 토스트 알림
 - 사용자 위치 공유: Supabase Presence + Broadcast 병행. 탭을 닫으면 공유가 사라진다.
 - Realtime 연결이 불안정할 때 5초 주기의 안전 동기화로 채팅·핀·알림을 다시 맞춘다.
@@ -53,6 +54,8 @@
    - 기존 핀도 실행 시점의 이름으로 채운다.
 3. `supabase/message-reads-realtime-migration.sql`
    - 읽음 표시 즉시 반영을 보장한다.
+4. `supabase/activity-notifications-migration.sql`
+   - 핀 생성·수정·삭제, 채팅, 댓글, 경로, 멤버 참가를 다른 멤버의 종 알림으로 보낸다.
 
 ## 다음 세션에서 우선 확인할 것
 
