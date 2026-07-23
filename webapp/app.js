@@ -40,7 +40,10 @@ function initMap() {
   L.control.zoom({ position:'bottomright' }).addTo(map);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap contributors' }).addTo(map);
   lineLayer = L.layerGroup().addTo(map);
-  map.on('click', event => { if (state.pending === 'add') { state.pending = null; $('#addPinButton').classList.remove('active'); openPinDialog(event.latlng); } });
+  map.on('click', event => {
+    if (state.pending === 'add') { state.pending = null; $('#addPinButton').classList.remove('active'); openPinDialog(event.latlng); return; }
+    if (!state.routeMode) clearRoutePreview();
+  });
   // 앱 화면이 숨김 상태였다가 나타날 때와 창 크기가 바뀔 때 타일 영역을 다시 계산합니다.
   const resizeMap = () => map.invalidateSize({ pan:false, animate:false });
   new ResizeObserver(resizeMap).observe($('#map'));
@@ -203,8 +206,20 @@ function selectPin(pin) {
     }
     persistRoute();
   }
-  else { const index = state.selected.findIndex(p => p.id === pin.id); index >= 0 ? state.selected.splice(index, 1) : state.selected.push(pin); if (state.selected.length > 2) state.selected.shift(); }
+  else {
+    if (state.route.length) state.route = [];
+    const index = state.selected.findIndex(p => p.id === pin.id); index >= 0 ? state.selected.splice(index, 1) : state.selected.push(pin); if (state.selected.length > 2) state.selected.shift();
+  }
+  $('#measureCard').classList.remove('hidden');
   updateMeasure(); renderPins();
+}
+function clearRoutePreview() {
+  if (!state.route.length && !state.selected.length) return;
+  state.route = [];
+  state.selected = [];
+  lineLayer?.clearLayers();
+  $('#measureCard').classList.add('hidden');
+  renderPins();
 }
 async function loadSharedRoute() {
   if (state.active === 'all') { state.route = []; return; }
