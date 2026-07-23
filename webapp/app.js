@@ -7,7 +7,7 @@ const masterAccounts = { Master1:'master1@example.com' };
 const PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, '');
 const colors = { coral:'#ed7668', blue:'#5d8ddd', amber:'#dea23f', green:'#4da887', purple:'#8b72d5' };
 const $ = selector => document.querySelector(selector);
-const state = { user:null, profile:null, sessionNickname:'', spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, commentPin:null, notifications:[], messageReads:new Map() };
+const state = { user:null, profile:null, sessionNickname:'', spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], routes:[], activeRouteId:null, routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, commentPin:null, notifications:[], messageReads:new Map() };
 let sb, map, lineLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null;
 const locationBroadcasts = new Map();
 
@@ -200,11 +200,11 @@ function renderPins() {
 function renderRoutes() {
   const list = $('#routeList');
   if (!list) return;
-  $('#routeCount').textContent = state.route.length;
+  $('#routeCount').textContent = state.routes.length;
   if (state.active === 'all') { list.innerHTML = '<small>여행 공간을 선택하면 공유 경로를 볼 수 있습니다.</small>'; return; }
-  if (state.route.length < 2) { list.innerHTML = '<small>아직 공유된 경로가 없습니다. 경로 지정에서 핀 두 개를 선택하세요.</small>'; return; }
-  list.innerHTML = state.route.map((pin,index) => `<button class="route-item" data-route-pin="${pin.id}"><b>${index + 1}</b><span><strong>${escapeHtml(pin.title)}</strong><small>${escapeHtml(pin.note || '메모 없음')}</small></span></button>`).join('');
-  document.querySelectorAll('[data-route-pin]').forEach(button => button.addEventListener('click', () => { const pin = state.pins.find(item => item.id === button.dataset.routePin); if (pin) map.flyTo([pin.latitude,pin.longitude],15); }));
+  if (!state.routes.length) { list.innerHTML = '<small>아직 공유된 경로가 없습니다. 경로 지정에서 핀 두 개를 선택하세요.</small>'; return; }
+  list.innerHTML = state.routes.map((route,index) => `<button class="route-item ${route.id === state.activeRouteId ? 'selected' : ''}" data-route="${route.id}"><b>${index + 1}</b><span><strong>${escapeHtml(route.name)}</strong><small>${escapeHtml(route.pins.map(pin => pin.title).join(' → ') || '핀 정보 없음')}</small></span></button>`).join('');
+  document.querySelectorAll('[data-route]').forEach(button => button.addEventListener('click', () => { const route = state.routes.find(item => item.id === button.dataset.route); if (!route) return; state.activeRouteId = route.id; state.route = route.pins; updateMeasure(); renderPins(); if (route.pins[0]) map.flyTo([route.pins[0].latitude,route.pins[0].longitude],15); }));
 }
 function selectPin(pin) {
   if (state.routeMode) {
@@ -220,6 +220,7 @@ function selectPin(pin) {
   }
   else {
     if (state.route.length) state.route = [];
+    state.activeRouteId = null;
     const index = state.selected.findIndex(p => p.id === pin.id); index >= 0 ? state.selected.splice(index, 1) : state.selected.push(pin); if (state.selected.length > 2) state.selected.shift();
   }
   $('#measureCard').classList.remove('hidden');
@@ -228,34 +229,33 @@ function selectPin(pin) {
 function clearRoutePreview() {
   if (!state.route.length && !state.selected.length) return;
   state.route = [];
+  state.activeRouteId = null;
   state.selected = [];
   lineLayer?.clearLayers();
   $('#measureCard').classList.add('hidden');
   renderPins();
 }
 async function loadSharedRoute() {
-  if (state.active === 'all') { state.route = []; return; }
-  const { data, error } = await sb.from('space_routes').select('id,route_stops(pin_id,stop_order)').eq('space_id',state.active).eq('name','현재 경로').maybeSingle();
-  if (error || !data) { state.route = []; return; }
-  state.route = (data.route_stops || []).sort((a,b) => a.stop_order - b.stop_order).map(stop => state.pins.find(pin => pin.id === stop.pin_id)).filter(Boolean);
+  if (state.active === 'all') { state.route = []; state.routes = []; state.activeRouteId = null; return; }
+  const { data, error } = await sb.from('space_routes').select('id,name,created_at,updated_at,route_stops(pin_id,stop_order)').eq('space_id',state.active).order('created_at');
+  if (error) { state.routes = []; state.route = []; return; }
+  state.routes = (data || []).map(route => ({ ...route, pins:(route.route_stops || []).sort((a,b) => a.stop_order - b.stop_order).map(stop => state.pins.find(pin => pin.id === stop.pin_id)).filter(Boolean) }));
+  if (!state.routes.some(route => route.id === state.activeRouteId)) { state.activeRouteId = null; state.route = []; }
+  else state.route = state.routes.find(route => route.id === state.activeRouteId).pins;
 }
 async function saveSharedRoute() {
   if (state.active === 'all' || state.route.length !== 2) return;
   if (currentRole() === 'viewer') return toast('보기 전용 멤버는 경로를 저장할 수 없습니다.');
-  const name = '현재 경로';
-  const { data: existing } = await sb.from('space_routes').select('id').eq('space_id',state.active).eq('name',name).maybeSingle();
-  let routeId = existing?.id;
-  if (routeId) {
-    const { error } = await sb.from('space_routes').update({ updated_by:state.user.id, updated_at:new Date().toISOString() }).eq('id',routeId);
-    if (error) return toast('공유 경로 저장에 실패했습니다.');
-    await sb.from('route_stops').delete().eq('route_id',routeId);
-  } else {
-    const { data, error } = await sb.from('space_routes').insert({ space_id:state.active, name, created_by:state.user.id, updated_by:state.user.id }).select('id').single();
-    if (error) return toast('공유 경로 DB 설정이 필요합니다. SQL 실행 후 다시 시도해 주세요.');
-    routeId = data.id;
-  }
+  let name = `경로 ${state.routes.length + 1}`;
+  let { data, error: routeError } = await sb.from('space_routes').insert({ space_id:state.active, name, created_by:state.user.id, updated_by:state.user.id }).select('id').single();
+  if (routeError?.code === '23505') { name = `경로 ${Date.now()}`; ({ data, error:routeError } = await sb.from('space_routes').insert({ space_id:state.active, name, created_by:state.user.id, updated_by:state.user.id }).select('id').single()); }
+  if (routeError) return toast('공유 경로 DB 설정이 필요합니다. SQL 실행 후 다시 시도해 주세요.');
+  const routeId = data.id;
   const { error } = await sb.from('route_stops').insert(state.route.map((pin,index) => ({ route_id:routeId, pin_id:pin.id, stop_order:index + 1 })));
   if (error) return toast('공유 경로 저장에 실패했습니다.');
+  state.activeRouteId = routeId;
+  await loadSharedRoute();
+  updateMeasure(); renderPins();
   toast('여행 공간 멤버에게 경로를 공유했습니다.');
 }
 function updateMeasure() {
@@ -440,7 +440,7 @@ function bindUi() {
   $('#sessionNicknameDialog').addEventListener('cancel', event => event.preventDefault());
   document.querySelectorAll('[data-auth]').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('[data-auth]').forEach(item => item.classList.toggle('active', item === button)); const signup = button.dataset.auth === 'signup'; $('#nicknameField').classList.toggle('hidden', !signup); $('#nickname').required = signup; $('#authSubmit').textContent = signup ? '회원가입' : '로그인'; $('#authHelp').textContent = signup ? '회원가입에는 실제 이메일 주소를 입력해 주세요.' : '가입한 이메일 또는 마스터 계정 Master1로 로그인하세요.'; }));
   $('#authForm').addEventListener('submit', async event => { event.preventDefault(); const signup = $('[data-auth].active').dataset.auth === 'signup'; const loginId = $('#email').value.trim(); const masterEmail = loginId.toLowerCase() === 'master1' ? masterAccounts.Master1 : null; if (signup && masterEmail) return toast('Master1은 회원가입할 수 없는 마스터 계정입니다.'); if (signup && !loginId.includes('@')) return toast('회원가입에는 이메일 주소를 입력해 주세요.'); const email = masterEmail || loginId, password = $('#password').value; if (signup && password.length < 8) return toast('회원가입 비밀번호는 8자 이상이어야 합니다.'); const result = signup ? await sb.auth.signUp({ email, password, options:{ data:{ nickname:$('#nickname').value.trim() }, emailRedirectTo:`${location.origin}${location.pathname}` } }) : await sb.auth.signInWithPassword({ email, password }); if (result.error) return toast(result.error.message); if (signup && !result.data.session) return toast('가입 확인 메일을 보냈습니다. 이메일 인증 후 로그인하세요.'); });
-  $('#spaceSelect').addEventListener('change', async event => { if (locationWatchId !== null) stopLocationShare(true); state.active = event.target.value; state.selected = []; state.route = []; updateMeasure(); await refresh(); });
+  $('#spaceSelect').addEventListener('change', async event => { if (locationWatchId !== null) stopLocationShare(true); state.active = event.target.value; state.selected = []; state.route = []; state.activeRouteId = null; updateMeasure(); await refresh(); });
   $('#newSpaceButton').addEventListener('click', () => showDialog('spaceDialog')); $('#joinSpaceButton').addEventListener('click', () => showDialog('joinDialog')); $('#inviteButton').addEventListener('click', makeInvite); $('#deleteSpaceButton').addEventListener('click', deleteSpace); $('#notificationButton').addEventListener('click', openNotifications); $('#mobilePanelButton').addEventListener('click', () => $('.app aside').classList.toggle('open')); $('#spaceForm').addEventListener('submit', createSpace); $('#joinForm').addEventListener('submit', joinSpace); $('#pinForm').addEventListener('submit', createPin); $('#messageForm').addEventListener('submit', sendMessage); $('#messageInput').addEventListener('focus', () => setTimeout(() => scrollChatToBottom(true), 180)); $('#commentForm').addEventListener('submit', addComment); $('#profileButton').addEventListener('click', () => { $('#profileNickname').value = state.profile.nickname; $('#profilePassword').value = ''; $('#profilePasswordConfirm').value = ''; showDialog('profileDialog'); }); $('#profileForm').addEventListener('submit', saveProfile); $('#forgotPasswordButton').addEventListener('click', () => { $('#forgotPasswordEmail').value = $('#email').value.trim(); showDialog('forgotPasswordDialog'); }); $('#forgotPasswordForm').addEventListener('submit', requestPasswordReset); $('#newPasswordForm').addEventListener('submit', setRecoveredPassword); $('#sessionNicknameForm').addEventListener('submit', saveSessionNickname); $('#signOutButton').addEventListener('click', () => sb.auth.signOut());
   $('#addPinButton').addEventListener('click', () => { if (state.active === 'all') return toast('핀을 추가할 여행 공간을 선택하세요.'); state.pending = 'add'; $('#addPinButton').classList.add('active'); toast('지도에서 핀을 놓을 위치를 선택하세요.'); });
   $('#routeButton').addEventListener('click', () => {
@@ -451,6 +451,7 @@ function bindUi() {
     } else {
       if (currentRole() === 'viewer') return toast('보기 전용 멤버는 경로를 지정할 수 없습니다.');
       state.route = [];
+      state.activeRouteId = null;
       persistRoute();
       state.routeMode = true;
       $('#routeButton').classList.add('active');
