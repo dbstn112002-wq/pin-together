@@ -7,7 +7,7 @@ const masterAccounts = { Master1:'master1@example.com' };
 const PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, '');
 const colors = { coral:'#ed7668', blue:'#5d8ddd', amber:'#dea23f', green:'#4da887', purple:'#8b72d5' };
 const $ = selector => document.querySelector(selector);
-const state = { user:null, profile:null, sessionNickname:'', spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], routes:[], activeRouteId:null, routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, commentPin:null, notifications:[], messageReads:new Map() };
+const state = { user:null, profile:null, sessionNickname:'', spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], draftRoute:[], routes:[], activeRouteId:null, routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, commentPin:null, notifications:[], messageReads:new Map() };
 let sb, map, lineLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null, notificationHistoryOpen = false, closingNotificationFromBack = false;
 const locationBroadcasts = new Map();
 
@@ -21,7 +21,7 @@ function sessionNicknameKey() { return `pin-together-session-nickname:${state.us
 function activeNickname() { return state.sessionNickname || state.profile?.nickname || '참여자'; }
 function spaceName() { return state.active === 'all' ? '전체 지도' : state.spaces.find(s => s.space_id === state.active)?.spaces?.name || '지도'; }
 function pinIcon(pin) {
-  const routeIndex = state.route.findIndex(item => item.id === pin.id);
+  const routeIndex = (state.routeMode ? state.draftRoute : state.route).findIndex(item => item.id === pin.id);
   return L.divIcon({ className:'', iconSize:[40,34], iconAnchor:[13,25], html:`<div class="pin-marker" style="background:${colors[pin.color] || colors.coral}"><span>${initials(pin.author_nickname || pin.profiles?.nickname || '나')}</span>${routeIndex >= 0 ? `<i class="route-order"><b>${routeIndex + 1}</b></i>` : ''}</div>` });
 }
 function routeStorageKey() { return `pin-together-route:${state.user?.id || 'guest'}:${state.active}`; }
@@ -185,7 +185,8 @@ function renderPins() {
   const tag = $('#tagFilter')?.value || '';
   const pins = state.pins.filter(pin => `${pin.title} ${pin.note} ${(pin.tags || []).join(' ')}`.toLowerCase().includes(search) && (!tag || (pin.tags || []).includes(tag)));
   $('#pinCount').textContent = pins.length;
-  const row = pin => `<div class="pin-item ${state.selected.some(p => p.id === pin.id) || state.route.some(p => p.id === pin.id) ? 'selected' : ''}" data-pin="${pin.id}"><span class="dot" style="background:${colors[pin.color]}"></span><button class="pin-open" data-pin="${pin.id}"><strong>${escapeHtml(pin.title)}</strong><small class="pin-note">${escapeHtml(pin.note || '메모 없음')}</small><small>${escapeHtml(pin.author_nickname || pin.profiles?.nickname || '참여자')} · ${timeFull(pin.created_at)}</small>${(pin.tags || []).length ? `<span class="pin-tags">${pin.tags.map(tag => `<i class="pin-tag">#${escapeHtml(tag)}</i>`).join('')}</span>` : ''}</button><span class="pin-actions"><button data-favorite="${pin.id}" title="즐겨찾기">${state.favorites.has(pin.id) ? '★' : '☆'}</button><button data-comment="${pin.id}" title="댓글">💬</button><button data-edit="${pin.id}" title="메모·태그 수정">✎</button><button data-delete-pin="${pin.id}" title="삭제">×</button></span></div>`;
+  const displayRoute = state.routeMode ? state.draftRoute : state.route;
+  const row = pin => `<div class="pin-item ${state.selected.some(p => p.id === pin.id) || displayRoute.some(p => p.id === pin.id) ? 'selected' : ''}" data-pin="${pin.id}"><span class="dot" style="background:${colors[pin.color]}"></span><button class="pin-open" data-pin="${pin.id}"><strong>${escapeHtml(pin.title)}</strong><small class="pin-note">${escapeHtml(pin.note || '메모 없음')}</small><small>${escapeHtml(pin.author_nickname || pin.profiles?.nickname || '참여자')} · ${timeFull(pin.created_at)}</small>${(pin.tags || []).length ? `<span class="pin-tags">${pin.tags.map(tag => `<i class="pin-tag">#${escapeHtml(tag)}</i>`).join('')}</span>` : ''}</button><span class="pin-actions"><button data-favorite="${pin.id}" title="즐겨찾기">${state.favorites.has(pin.id) ? '★' : '☆'}</button><button data-comment="${pin.id}" title="댓글">💬</button><button data-edit="${pin.id}" title="메모·태그 수정">✎</button><button data-delete-pin="${pin.id}" title="삭제">×</button></span></div>`;
   $('#favoriteList').innerHTML = pins.filter(pin => state.favorites.has(pin.id)).map(row).join('') || '<small>즐겨찾기한 핀이 없습니다.</small>';
   $('#pinList').innerHTML = pins.map(row).join('') || '<small>아직 핀이 없습니다.</small>';
   pins.forEach(pin => L.marker([pin.latitude, pin.longitude], { icon:pinIcon(pin) }).addTo(state.markers).bindPopup(`<strong>${escapeHtml(pin.title)}</strong><br><small>작성자: ${escapeHtml(pin.author_nickname || pin.profiles?.nickname || '참여자')}</small><br><small>${escapeHtml(pin.note || '메모 없음')}</small><br><small>핀 생성: ${timeFull(pin.created_at)}</small><br><button class="favorite-popup" data-favorite="${pin.id}">☆ 즐겨찾기</button> <button class="favorite-popup" data-popup-comment="${pin.id}">💬 댓글 보기</button>`).on('click', () => { if (state.routeMode) selectPin(pin); }).on('popupopen', event => event.popup.getElement()?.querySelector('[data-popup-comment]')?.addEventListener('click', () => openComments(pin.id))));
@@ -208,15 +209,16 @@ function renderRoutes() {
 }
 function selectPin(pin) {
   if (state.routeMode) {
-    const index = state.route.findIndex(p => p.id === pin.id);
-    index >= 0 ? state.route.splice(index, 1) : state.route.push(pin);
-    if (state.route.length === 2) {
+    const index = state.draftRoute.findIndex(p => p.id === pin.id);
+    index >= 0 ? state.draftRoute.splice(index, 1) : state.draftRoute.push(pin);
+    if (state.draftRoute.length === 2) {
+      const routePins = [...state.draftRoute];
       state.routeMode = false;
+      state.draftRoute = [];
       $('#routeButton').classList.remove('active');
-      void saveSharedRoute();
+      void saveSharedRoute(routePins);
       toast('두 핀 경로를 확정했습니다. 새 경로를 만들려면 경로 지정을 다시 누르세요.');
     }
-    persistRoute();
   }
   else {
     if (state.route.length) state.route = [];
@@ -227,8 +229,9 @@ function selectPin(pin) {
   updateMeasure(); renderPins();
 }
 function clearRoutePreview() {
-  if (!state.route.length && !state.selected.length) return;
+  if (!state.route.length && !state.draftRoute.length && !state.selected.length) return;
   state.route = [];
+  state.draftRoute = [];
   state.activeRouteId = null;
   state.selected = [];
   lineLayer?.clearLayers();
@@ -236,22 +239,22 @@ function clearRoutePreview() {
   renderPins();
 }
 async function loadSharedRoute() {
-  if (state.active === 'all') { state.route = []; state.routes = []; state.activeRouteId = null; return; }
+  if (state.active === 'all') { state.route = []; state.draftRoute = []; state.routes = []; state.activeRouteId = null; return; }
   const { data, error } = await sb.from('space_routes').select('id,name,created_at,updated_at,route_stops(pin_id,stop_order)').eq('space_id',state.active).order('created_at');
   if (error) { state.routes = []; state.route = []; return; }
   state.routes = (data || []).map(route => ({ ...route, pins:(route.route_stops || []).sort((a,b) => a.stop_order - b.stop_order).map(stop => state.pins.find(pin => pin.id === stop.pin_id)).filter(Boolean) }));
   if (!state.routes.some(route => route.id === state.activeRouteId)) { state.activeRouteId = null; state.route = []; }
   else state.route = state.routes.find(route => route.id === state.activeRouteId).pins;
 }
-async function saveSharedRoute() {
-  if (state.active === 'all' || state.route.length !== 2) return;
+async function saveSharedRoute(routePins) {
+  if (state.active === 'all' || routePins.length !== 2) return;
   if (currentRole() === 'viewer') return toast('보기 전용 멤버는 경로를 저장할 수 없습니다.');
   let name = `경로 ${state.routes.length + 1}`;
   let { data, error: routeError } = await sb.from('space_routes').insert({ space_id:state.active, name, created_by:state.user.id, updated_by:state.user.id }).select('id').single();
   if (routeError?.code === '23505') { name = `경로 ${Date.now()}`; ({ data, error:routeError } = await sb.from('space_routes').insert({ space_id:state.active, name, created_by:state.user.id, updated_by:state.user.id }).select('id').single()); }
   if (routeError) return toast('공유 경로 DB 설정이 필요합니다. SQL 실행 후 다시 시도해 주세요.');
   const routeId = data.id;
-  const { error } = await sb.from('route_stops').insert(state.route.map((pin,index) => ({ route_id:routeId, pin_id:pin.id, stop_order:index + 1 })));
+  const { error } = await sb.from('route_stops').insert(routePins.map((pin,index) => ({ route_id:routeId, pin_id:pin.id, stop_order:index + 1 })));
   if (error) return toast('공유 경로 저장에 실패했습니다.');
   state.activeRouteId = routeId;
   await loadSharedRoute();
@@ -260,8 +263,8 @@ async function saveSharedRoute() {
 }
 function updateMeasure() {
   lineLayer.clearLayers();
-  const showingRoute = state.routeMode || state.route.length >= 2;
-  const route = showingRoute ? state.route : [];
+  const route = state.routeMode ? state.draftRoute : state.route;
+  const showingRoute = state.routeMode || route.length >= 2;
   if (!showingRoute) { $('#measureCard').classList.add('hidden'); return; }
   $('#measureCard').classList.remove('hidden');
   $('#measureTitle').textContent = showingRoute ? '저장된 경로' : '거리 측정';
@@ -444,19 +447,20 @@ function bindUi() {
   $('#sessionNicknameDialog').addEventListener('cancel', event => event.preventDefault());
   document.querySelectorAll('[data-auth]').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('[data-auth]').forEach(item => item.classList.toggle('active', item === button)); const signup = button.dataset.auth === 'signup'; $('#nicknameField').classList.toggle('hidden', !signup); $('#nickname').required = signup; $('#authSubmit').textContent = signup ? '회원가입' : '로그인'; $('#authHelp').textContent = signup ? '회원가입에는 실제 이메일 주소를 입력해 주세요.' : '가입한 이메일 또는 마스터 계정 Master1로 로그인하세요.'; }));
   $('#authForm').addEventListener('submit', async event => { event.preventDefault(); const signup = $('[data-auth].active').dataset.auth === 'signup'; const loginId = $('#email').value.trim(); const masterEmail = loginId.toLowerCase() === 'master1' ? masterAccounts.Master1 : null; if (signup && masterEmail) return toast('Master1은 회원가입할 수 없는 마스터 계정입니다.'); if (signup && !loginId.includes('@')) return toast('회원가입에는 이메일 주소를 입력해 주세요.'); const email = masterEmail || loginId, password = $('#password').value; if (signup && password.length < 8) return toast('회원가입 비밀번호는 8자 이상이어야 합니다.'); const result = signup ? await sb.auth.signUp({ email, password, options:{ data:{ nickname:$('#nickname').value.trim() }, emailRedirectTo:`${location.origin}${location.pathname}` } }) : await sb.auth.signInWithPassword({ email, password }); if (result.error) return toast(result.error.message); if (signup && !result.data.session) return toast('가입 확인 메일을 보냈습니다. 이메일 인증 후 로그인하세요.'); });
-  $('#spaceSelect').addEventListener('change', async event => { if (locationWatchId !== null) stopLocationShare(true); state.active = event.target.value; state.selected = []; state.route = []; state.activeRouteId = null; updateMeasure(); await refresh(); });
+  $('#spaceSelect').addEventListener('change', async event => { if (locationWatchId !== null) stopLocationShare(true); state.active = event.target.value; state.selected = []; state.route = []; state.draftRoute = []; state.activeRouteId = null; updateMeasure(); await refresh(); });
   $('#newSpaceButton').addEventListener('click', () => showDialog('spaceDialog')); $('#joinSpaceButton').addEventListener('click', () => showDialog('joinDialog')); $('#inviteButton').addEventListener('click', makeInvite); $('#deleteSpaceButton').addEventListener('click', deleteSpace); $('#notificationButton').addEventListener('click', openNotifications); $('#mobilePanelButton').addEventListener('click', () => $('.app aside').classList.toggle('open')); $('#spaceForm').addEventListener('submit', createSpace); $('#joinForm').addEventListener('submit', joinSpace); $('#pinForm').addEventListener('submit', createPin); $('#messageForm').addEventListener('submit', sendMessage); $('#messageInput').addEventListener('focus', () => setTimeout(() => scrollChatToBottom(true), 180)); $('#commentForm').addEventListener('submit', addComment); $('#profileButton').addEventListener('click', () => { $('#profileNickname').value = state.profile.nickname; $('#profilePassword').value = ''; $('#profilePasswordConfirm').value = ''; showDialog('profileDialog'); }); $('#profileForm').addEventListener('submit', saveProfile); $('#forgotPasswordButton').addEventListener('click', () => { $('#forgotPasswordEmail').value = $('#email').value.trim(); showDialog('forgotPasswordDialog'); }); $('#forgotPasswordForm').addEventListener('submit', requestPasswordReset); $('#newPasswordForm').addEventListener('submit', setRecoveredPassword); $('#sessionNicknameForm').addEventListener('submit', saveSessionNickname); $('#signOutButton').addEventListener('click', () => sb.auth.signOut());
   $('#addPinButton').addEventListener('click', () => { if (state.active === 'all') return toast('핀을 추가할 여행 공간을 선택하세요.'); state.pending = 'add'; $('#addPinButton').classList.add('active'); toast('지도에서 핀을 놓을 위치를 선택하세요.'); });
   $('#routeButton').addEventListener('click', () => {
     if (state.routeMode) {
       state.routeMode = false;
+      state.draftRoute = [];
       $('#routeButton').classList.remove('active');
       toast('경로 지정을 취소했습니다.');
     } else {
       if (currentRole() === 'viewer') return toast('보기 전용 멤버는 경로를 지정할 수 없습니다.');
       state.route = [];
+      state.draftRoute = [];
       state.activeRouteId = null;
-      persistRoute();
       state.routeMode = true;
       $('#routeButton').classList.add('active');
       toast('연결할 핀 두 개를 순서대로 선택하세요. 두 번째 핀에서 자동 확정됩니다.');
