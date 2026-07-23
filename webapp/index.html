@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#1e2b3b" />
+  <title>핀투게더</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <main id="setupView" class="center-view hidden"><section class="card"><h1>핀투게더 설정</h1><p>먼저 <code>config.js</code>에 Supabase 주소와 publishable key를 입력해 주세요.</p></section></main>
+  <main id="authView" class="center-view hidden"><section class="card auth-card"><h1><span>✦</span> 핀투게더</h1><p>초대된 사람과 함께 여행 지도를 만드세요.</p><div class="auth-tabs"><button class="active" data-auth="login">로그인</button><button data-auth="signup">회원가입</button></div><form id="authForm"><label id="nicknameField" class="hidden">닉네임<input id="nickname" minlength="2" maxlength="16" placeholder="예: 유진" /></label><label>이메일<input id="email" type="email" required autocomplete="email" /></label><label>비밀번호<input id="password" type="password" minlength="8" required autocomplete="current-password" /></label><button class="primary wide" id="authSubmit">로그인</button></form><p class="form-help" id="authHelp">가입한 이메일과 비밀번호로 로그인하세요.</p></section></main>
+  <main id="appView" class="app hidden">
+    <header><button id="mobilePanelButton" class="mobile-panel-button">☰ 핀 목록</button><a class="brand">✦ 핀투게더</a><select id="spaceSelect" aria-label="지도 공간"></select><div class="header-actions"><button id="notificationButton" title="알림">🔔 <span id="notificationCount"></span></button><button id="inviteButton">초대</button><button id="deleteSpaceButton" class="danger-button">공간 삭제</button><button id="profileButton" class="avatar" title="닉네임 변경"></button><button id="signOutButton" class="text-button">나가기</button></div></header>
+    <aside><div class="space-actions"><button id="newSpaceButton" class="primary wide">＋ 새 여행 공간</button><button id="joinSpaceButton" class="secondary wide">초대 코드로 참가</button></div><div class="tabs"><button class="active" data-panel="pins">핀 <span id="pinCount">0</span></button><button data-panel="chat">채팅</button></div><section id="pinsPanel" class="panel"><label class="search">⌕ <input id="pinSearch" placeholder="현재 공간의 핀 검색" /></label><p class="label">즐겨찾기</p><div id="favoriteList"></div><p class="label">모든 핀</p><div id="pinList"></div></section><section id="chatPanel" class="panel hidden"><div id="messages"></div><form id="messageForm"><input id="messageInput" maxlength="1000" placeholder="메시지 보내기" /><button>↑</button></form></section></aside>
+    <section class="map-wrap"><div id="map"></div><div class="map-top"><form id="placeSearchForm"><input id="placeSearch" placeholder="장소, 주소 검색" /><button>검색</button></form><div id="placeResults"></div></div><div class="map-actions"><button id="locateButton">◎ 내 위치</button><button id="routeButton">⌇ 경로 지정</button><button id="addPinButton" class="primary">＋ 핀 추가</button></div><div id="measureCard"><button id="closeMeasure">×</button><p id="measureTitle">거리 측정</p><strong id="measureValue">핀 두 개를 선택하세요</strong><small id="measureHint">선택한 핀 사이의 직선거리를 표시합니다.</small></div></section>
+  </main>
+  <dialog id="pinDialog"><form id="pinForm"><h2>핀 추가</h2><label>장소 이름<input id="pinTitle" maxlength="80" required /></label><label>메모<textarea id="pinNote" maxlength="1000"></textarea></label><label>색상<select id="pinColor"><option value="coral">코랄</option><option value="blue">파랑</option><option value="amber">노랑</option><option value="green">초록</option><option value="purple">보라</option></select></label><div class="dialog-actions"><button type="button" data-close="pinDialog" class="secondary">취소</button><button class="primary">저장</button></div></form></dialog>
+  <dialog id="spaceDialog"><form id="spaceForm"><h2>새 여행 공간</h2><label>공간 이름<input id="spaceName" maxlength="60" required placeholder="예: 한국 여행" /></label><div class="dialog-actions"><button type="button" data-close="spaceDialog" class="secondary">취소</button><button class="primary">만들기</button></div></form></dialog>
+  <dialog id="joinDialog"><form id="joinForm"><h2>초대 코드로 참가</h2><label>초대 코드<input id="inviteCode" required placeholder="초대 링크의 코드" /></label><div class="dialog-actions"><button type="button" data-close="joinDialog" class="secondary">취소</button><button class="primary">참가</button></div></form></dialog>
+  <dialog id="profileDialog"><form id="profileForm"><h2>내 프로필</h2><label>닉네임<input id="profileNickname" minlength="2" maxlength="16" required /></label><div class="dialog-actions"><button type="button" data-close="profileDialog" class="secondary">취소</button><button class="primary">저장</button></div></form></dialog>
+  <dialog id="commentsDialog"><section class="comments-dialog"><h2 id="commentsTitle">핀 댓글</h2><div id="commentsList"></div><form id="commentForm"><input id="commentInput" maxlength="1000" placeholder="댓글을 입력하세요" required /><button class="primary">등록</button></form><div class="dialog-actions"><button type="button" data-close="commentsDialog" class="secondary">닫기</button></div></section></dialog>
+  <dialog id="notificationsDialog"><section class="comments-dialog"><h2>알림</h2><div id="notificationsList"></div><div class="dialog-actions"><button type="button" data-close="notificationsDialog" class="secondary">닫기</button></div></section></dialog>
+  <div id="toast" role="status"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

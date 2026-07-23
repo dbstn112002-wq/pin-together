@@ -1,0 +1,11 @@
+# Local tooling and deployment caches
+.wrangler/
+node_modules/
+
+# Local screenshots used for support/debugging
+문제*.png
+생성*.png
+
+# OS/editor files
+.DS_Store
+Thumbs.db

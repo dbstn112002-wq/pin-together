@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#202c3c" />
+    <title>핀투게더 | 함께 보는 지도</title>
+    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQ0B0MftZ7qj1w5tY9Wzxp2rYjRMzTE=" crossorigin="" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="핀투게더 홈"><span class="brand-mark">✦</span> 핀투게더</a>
+        <div class="space-title"><span class="online-dot"></span><strong>여름 여행 계획</strong><span class="member-count">3명 접속 중</span></div>
+        <div class="top-actions">
+          <button class="icon-button" aria-label="알림">⌁</button>
+          <button class="avatar-button" id="profileButton" aria-label="닉네임 변경">나</button>
+        </div>
+      </header>
+
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-heading">
+          <div><p class="eyebrow">내 공간</p><h1>여름 여행 계획</h1></div>
+          <button class="small-icon" aria-label="설정">⚙</button>
+        </div>
+        <label class="space-picker">지도 공간
+          <select id="spaceSelect" aria-label="지도 공간 선택">
+            <option value="all">전체 지도</option>
+            <option value="korea" selected>한국 여행</option>
+            <option value="china">중국 여행</option>
+          </select>
+        </label>
+        <button class="invite-button" id="inviteButton">＋ 멤버 초대</button>
+
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="pins" role="tab">핀 <span id="pinCount">4</span></button>
+          <button class="tab" data-tab="chat" role="tab">채팅 <span class="unread">2</span></button>
+        </div>
+
+        <section class="tab-panel" id="pinsPanel">
+          <div class="panel-tools">
+            <label class="search"><span>⌕</span><input id="pinSearch" type="search" placeholder="핀 검색" /></label>
+            <button class="filter-button" aria-label="필터">☷</button>
+          </div>
+          <p class="section-label">즐겨찾기</p>
+          <div class="pin-list" id="favoriteList"></div>
+          <p class="section-label">모든 핀</p>
+          <div class="pin-list" id="pinList"></div>
+        </section>
+
+        <section class="tab-panel hidden" id="chatPanel">
+          <div class="chat-messages" id="chatMessages"></div>
+          <form class="chat-form" id="chatForm">
+            <input id="chatInput" autocomplete="off" placeholder="메시지 보내기" maxlength="300" />
+            <button aria-label="전송">↑</button>
+          </form>
+        </section>
+
+        <div class="members">
+          <p class="section-label">참여자</p>
+          <div class="member"><span class="mini-avatar coral">민</span><span>민서 <small>온라인</small></span><i></i></div>
+          <div class="member"><span class="mini-avatar blue">준</span><span>준호 <small>온라인</small></span><i></i></div>
+          <div class="member"><span class="mini-avatar amber" id="myInitial">나</span><span>나 (<span id="myNickname">여행자</span>)</span><i></i></div>
+        </div>
+      </aside>
+
+      <main class="map-area">
+        <div id="map" aria-label="공유 지도"></div>
+        <button class="mobile-menu" id="mobileMenu" aria-label="목록 열기">☰ <span>여름 여행 계획</span></button>
+        <div class="map-toolbar">
+          <button class="map-control" id="locateButton">◎ <span>내 위치</span></button>
+          <button class="map-control active-tool" id="addPinButton">＋ <span>핀 추가</span></button>
+        </div>
+        <div class="distance-card" id="distanceCard">
+          <button class="close-card" id="closeDistance" aria-label="닫기">×</button>
+          <p>거리 측정</p>
+          <strong id="distanceText">지도에서 핀 두 개를 선택하세요</strong>
+          <small id="distanceHint">선택한 핀 사이의 직선거리를 보여드립니다.</small>
+        </div>
+        <button class="floating-add" id="floatingAdd" aria-label="핀 추가">＋</button>
+      </main>
+    </div>
+
+    <dialog id="pinDialog">
+      <form method="dialog" id="pinForm">
+        <div class="dialog-title"><div><p class="eyebrow">새 장소</p><h2>핀 추가하기</h2></div><button value="cancel" class="small-icon" aria-label="닫기">×</button></div>
+        <label>장소 이름<input id="pinName" required maxlength="50" placeholder="예: 꼭 가고 싶은 카페" /></label>
+        <label>메모 <textarea id="pinNote" maxlength="180" placeholder="함께 볼 메모를 남겨보세요"></textarea></label>
+        <label>핀 색상<select id="pinColor"><option value="coral">코랄 (나)</option><option value="blue">파랑 (준호)</option><option value="green">초록</option><option value="purple">보라</option></select></label>
+        <div class="dialog-actions"><button type="button" value="cancel" id="cancelPin" class="secondary">취소</button><button type="submit" class="primary">핀 추가</button></div>
+      </form>
+    </dialog>
+    <dialog id="nicknameDialog">
+      <form method="dialog" id="nicknameForm">
+        <div class="dialog-title"><div><p class="eyebrow">환영합니다</p><h2>닉네임을 정해주세요</h2></div></div>
+        <p class="dialog-description">같은 지도 공간의 다른 참여자에게 이 이름으로 표시됩니다.</p>
+        <label>닉네임<input id="nicknameInput" required minlength="2" maxlength="16" placeholder="예: 유진" autocomplete="nickname" /></label>
+        <div class="dialog-actions"><button type="submit" class="primary">시작하기</button></div>
+      </form>
+    </dialog>
+    <div class="toast" id="toast" role="status"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="app.js"></script>
+  </body>
+</html>

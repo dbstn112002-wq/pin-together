@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dry-butterfly-8a6f",
+  "compatibility_date": "2026-07-23",
+  "assets": {
+    "directory": "."
+  }
+}
