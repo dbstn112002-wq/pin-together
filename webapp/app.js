@@ -7,7 +7,7 @@ const masterAccounts = { Master1:'master1@example.com' };
 const PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, '');
 const colors = { coral:'#ed7668', blue:'#5d8ddd', amber:'#dea23f', green:'#4da887', purple:'#8b72d5' };
 const $ = selector => document.querySelector(selector);
-const state = { user:null, profile:null, spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, commentPin:null, notifications:[], messageReads:new Map() };
+const state = { user:null, profile:null, sessionNickname:'', spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, commentPin:null, notifications:[], messageReads:new Map() };
 let sb, map, lineLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null;
 const locationBroadcasts = new Map();
 
@@ -16,6 +16,9 @@ function show(view) { ['setupView','authView','appView'].forEach(id => $(`#${id}
 function showDialog(id) { $(`#${id}`).showModal(); }
 function closeDialogs() { document.querySelectorAll('dialog[open]').forEach(d => d.close()); }
 function initials(name='나') { return name.trim().slice(0,1); }
+function isMasterUser() { return state.user?.email === masterAccounts.Master1; }
+function sessionNicknameKey() { return `pin-together-session-nickname:${state.user?.id || 'guest'}`; }
+function activeNickname() { return state.sessionNickname || state.profile?.nickname || '참여자'; }
 function spaceName() { return state.active === 'all' ? '전체 지도' : state.spaces.find(s => s.space_id === state.active)?.spaces?.name || '지도'; }
 function pinIcon(pin) {
   const routeIndex = state.route.findIndex(item => item.id === pin.id);
@@ -86,7 +89,7 @@ function connectLocationPresence() {
 async function publishLocation(position) {
   if (!sharingSpaceId || sharingSpaceId !== state.active) return;
   const { latitude, longitude, accuracy } = position.coords;
-  latestLocationPayload = { user_id:state.user.id, nickname:state.profile.nickname, latitude, longitude, accuracy, updated_at:new Date().toISOString() };
+  latestLocationPayload = { user_id:state.user.id, nickname:activeNickname(), latitude, longitude, accuracy, updated_at:new Date().toISOString() };
   if (!locationChannel) connectLocationPresence();
   locationBroadcasts.set(state.user.id, latestLocationPayload);
   const result = await locationChannel.track(latestLocationPayload);
@@ -185,7 +188,7 @@ function renderPins() {
   const row = pin => `<div class="pin-item ${state.selected.some(p => p.id === pin.id) || state.route.some(p => p.id === pin.id) ? 'selected' : ''}" data-pin="${pin.id}"><span class="dot" style="background:${colors[pin.color]}"></span><button class="pin-open" data-pin="${pin.id}"><strong>${escapeHtml(pin.title)}</strong><small class="pin-note">${escapeHtml(pin.note || '메모 없음')}</small><small>${escapeHtml(pin.author_nickname || pin.profiles?.nickname || '참여자')} · ${timeFull(pin.created_at)}</small>${(pin.tags || []).length ? `<span class="pin-tags">${pin.tags.map(tag => `<i class="pin-tag">#${escapeHtml(tag)}</i>`).join('')}</span>` : ''}</button><span class="pin-actions"><button data-favorite="${pin.id}" title="즐겨찾기">${state.favorites.has(pin.id) ? '★' : '☆'}</button><button data-comment="${pin.id}" title="댓글">💬</button><button data-edit="${pin.id}" title="메모·태그 수정">✎</button><button data-delete-pin="${pin.id}" title="삭제">×</button></span></div>`;
   $('#favoriteList').innerHTML = pins.filter(pin => state.favorites.has(pin.id)).map(row).join('') || '<small>즐겨찾기한 핀이 없습니다.</small>';
   $('#pinList').innerHTML = pins.map(row).join('') || '<small>아직 핀이 없습니다.</small>';
-  pins.forEach(pin => L.marker([pin.latitude, pin.longitude], { icon:pinIcon(pin) }).addTo(state.markers).bindPopup(`<strong>${escapeHtml(pin.title)}</strong><br><small>${escapeHtml(pin.note || '메모 없음')}</small><br><small>핀 생성: ${timeFull(pin.created_at)}</small><br><button class="favorite-popup" data-favorite="${pin.id}">☆ 즐겨찾기</button> <button class="favorite-popup" data-popup-comment="${pin.id}">💬 댓글 보기</button>`).on('click', () => selectPin(pin)).on('popupopen', event => event.popup.getElement()?.querySelector('[data-popup-comment]')?.addEventListener('click', () => openComments(pin.id))));
+  pins.forEach(pin => L.marker([pin.latitude, pin.longitude], { icon:pinIcon(pin) }).addTo(state.markers).bindPopup(`<strong>${escapeHtml(pin.title)}</strong><br><small>${escapeHtml(pin.note || '메모 없음')}</small><br><small>핀 생성: ${timeFull(pin.created_at)}</small><br><button class="favorite-popup" data-favorite="${pin.id}">☆ 즐겨찾기</button> <button class="favorite-popup" data-popup-comment="${pin.id}">💬 댓글 보기</button>`).on('click', () => { if (state.routeMode) selectPin(pin); }).on('popupopen', event => event.popup.getElement()?.querySelector('[data-popup-comment]')?.addEventListener('click', () => openComments(pin.id))));
   document.querySelectorAll('.pin-open').forEach(el => el.addEventListener('click', () => { const pin = state.pins.find(p => p.id === el.dataset.pin); map.flyTo([pin.latitude, pin.longitude], 15); selectPin(pin); }));
   document.querySelectorAll('[data-edit]').forEach(el => el.addEventListener('click', () => editPin(el.dataset.edit)));
   document.querySelectorAll('[data-delete-pin]').forEach(el => el.addEventListener('click', () => deletePin(el.dataset.deletePin)));
@@ -378,9 +381,8 @@ async function saveProfile(event) {
 async function saveSessionNickname(event) {
   event.preventDefault();
   const nickname = $('#sessionNickname').value.trim();
-  const { error } = await sb.from('profiles').update({ nickname }).eq('id',state.user.id);
-  if (error) return toast(error.message);
-  state.profile.nickname = nickname;
+  sessionStorage.setItem(sessionNicknameKey(), nickname);
+  state.sessionNickname = nickname;
   $('#profileButton').textContent = initials(nickname);
   nicknamePromptedForSession = true;
   closeDialogs();
@@ -415,9 +417,11 @@ async function startApp() {
   if (!map) initMap();
   else map.invalidateSize();
   await loadProfile();
+  state.sessionNickname = isMasterUser() ? (sessionStorage.getItem(sessionNicknameKey()) || '') : '';
+  $('#profileButton').textContent = initials(activeNickname());
   await refresh();
   const invite = new URLSearchParams(location.search).get('invite');
-  if (!nicknamePromptedForSession && !$('#sessionNicknameDialog').open && !invite) {
+  if (isMasterUser() && !state.sessionNickname && !nicknamePromptedForSession && !$('#sessionNicknameDialog').open && !invite) {
     $('#sessionNickname').value = '';
     showDialog('sessionNicknameDialog');
   }
