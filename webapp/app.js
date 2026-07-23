@@ -363,6 +363,25 @@ async function saveProfile(event) {
   closeDialogs();
   toast(password ? '프로필과 비밀번호를 저장했습니다.' : '닉네임을 저장했습니다.');
 }
+async function requestPasswordReset(event) {
+  event.preventDefault();
+  const email = $('#forgotPasswordEmail').value.trim();
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo:`${location.origin}${location.pathname}` });
+  if (error) return toast(error.message);
+  closeDialogs();
+  toast('비밀번호 재설정 링크를 이메일로 보냈습니다.');
+}
+async function setRecoveredPassword(event) {
+  event.preventDefault();
+  const password = $('#newPassword').value;
+  if (password !== $('#newPasswordConfirm').value) return toast('새 비밀번호가 일치하지 않습니다.');
+  const { error } = await sb.auth.updateUser({ password });
+  if (error) return toast(error.message);
+  closeDialogs();
+  $('#newPasswordForm').reset();
+  toast('비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.');
+  await sb.auth.signOut();
+}
 async function searchPlace(event) { event.preventDefault(); const query = $('#placeSearch').value.trim(); if (!query) return; $('#placeResults').innerHTML = '<button class="result">검색 중…</button>'; try { const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=ko&q=${encodeURIComponent(query)}`); const results = await response.json(); $('#placeResults').innerHTML = results.map((item,index) => `<button class="result" data-result="${index}">${escapeHtml(item.display_name.split(',').slice(0,2).join(','))}<small>${escapeHtml(item.display_name)}</small></button>`).join('') || '<button class="result">검색 결과가 없습니다.</button>'; document.querySelectorAll('[data-result]').forEach(button => button.addEventListener('click', () => { const item = results[button.dataset.result]; map.flyTo([item.lat,item.lon], 15); $('#placeResults').innerHTML = ''; })); } catch { $('#placeResults').innerHTML = '<button class="result">검색에 실패했습니다.</button>'; } }
 function subscribe() { state.channel?.unsubscribe(); state.channel = sb.channel(`space-${state.active}`).on('postgres_changes', { event:'*', schema:'public', table:'pins' }, () => loadPins()).on('postgres_changes', { event:'*', schema:'public', table:'messages', filter: state.active === 'all' ? undefined : `space_id=eq.${state.active}` }, () => { void loadMessages(); void loadUnreadCount(); }).on('postgres_changes', { event:'*', schema:'public', table:'message_reads' }, () => { void loadMessages(); void loadUnreadCount(); }).on('postgres_changes', { event:'*', schema:'public', table:'space_routes', filter: state.active === 'all' ? undefined : `space_id=eq.${state.active}` }, () => { void loadPins(); }).on('postgres_changes', { event:'*', schema:'public', table:'route_stops' }, () => { void loadPins(); }).on('postgres_changes', { event:'*', schema:'public', table:'notifications', filter:`user_id=eq.${state.user.id}` }, () => void loadNotifications()).subscribe(); }
 async function refresh() { await loadSpaces(); await loadPins(); await loadMessages(); await loadUnreadCount(); await loadNotifications(); connectLocationPresence(); subscribe(); $('#spaceSelect').value = state.active; $('#deleteSpaceButton').classList.toggle('hidden', state.active === 'all' || currentRole() !== 'owner'); }
@@ -388,7 +407,7 @@ function bindUi() {
   document.querySelectorAll('[data-auth]').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('[data-auth]').forEach(b => b.classList.toggle('active', b === button)); const signup = button.dataset.auth === 'signup'; $('#nicknameField').classList.toggle('hidden', !signup); $('#nickname').required = signup; $('#authSubmit').textContent = signup ? '회원가입' : '로그인'; $('#authHelp').textContent = signup ? '처음이신가요? 이메일과 비밀번호로 가입하세요.' : '가입한 이메일로 로그인하세요.'; }));
   $('#authForm').addEventListener('submit', async event => { event.preventDefault(); const signup = $('[data-auth].active').dataset.auth === 'signup'; const email = $('#email').value.trim(), password = $('#password').value; const result = signup ? await sb.auth.signUp({ email, password, options:{ data:{ nickname:$('#nickname').value.trim() }, emailRedirectTo:`${location.origin}${location.pathname}` } }) : await sb.auth.signInWithPassword({ email, password }); if (result.error) return toast(result.error.message); if (signup && !result.data.session) return toast('이메일 인증 링크를 확인한 후 로그인하세요.'); });
   $('#spaceSelect').addEventListener('change', async event => { if (locationWatchId !== null) stopLocationShare(true); state.active = event.target.value; state.selected = []; state.route = []; updateMeasure(); await refresh(); });
-  $('#newSpaceButton').addEventListener('click', () => showDialog('spaceDialog')); $('#joinSpaceButton').addEventListener('click', () => showDialog('joinDialog')); $('#inviteButton').addEventListener('click', makeInvite); $('#deleteSpaceButton').addEventListener('click', deleteSpace); $('#notificationButton').addEventListener('click', openNotifications); $('#mobilePanelButton').addEventListener('click', () => $('.app aside').classList.toggle('open')); $('#spaceForm').addEventListener('submit', createSpace); $('#joinForm').addEventListener('submit', joinSpace); $('#pinForm').addEventListener('submit', createPin); $('#messageForm').addEventListener('submit', sendMessage); $('#commentForm').addEventListener('submit', addComment); $('#profileButton').addEventListener('click', () => { $('#profileNickname').value = state.profile.nickname; $('#profilePassword').value = ''; $('#profilePasswordConfirm').value = ''; showDialog('profileDialog'); }); $('#profileForm').addEventListener('submit', saveProfile); $('#signOutButton').addEventListener('click', () => sb.auth.signOut());
+  $('#newSpaceButton').addEventListener('click', () => showDialog('spaceDialog')); $('#joinSpaceButton').addEventListener('click', () => showDialog('joinDialog')); $('#inviteButton').addEventListener('click', makeInvite); $('#deleteSpaceButton').addEventListener('click', deleteSpace); $('#notificationButton').addEventListener('click', openNotifications); $('#mobilePanelButton').addEventListener('click', () => $('.app aside').classList.toggle('open')); $('#spaceForm').addEventListener('submit', createSpace); $('#joinForm').addEventListener('submit', joinSpace); $('#pinForm').addEventListener('submit', createPin); $('#messageForm').addEventListener('submit', sendMessage); $('#commentForm').addEventListener('submit', addComment); $('#profileButton').addEventListener('click', () => { $('#profileNickname').value = state.profile.nickname; $('#profilePassword').value = ''; $('#profilePasswordConfirm').value = ''; showDialog('profileDialog'); }); $('#profileForm').addEventListener('submit', saveProfile); $('#forgotPasswordButton').addEventListener('click', () => { $('#forgotPasswordEmail').value = $('#email').value.trim(); showDialog('forgotPasswordDialog'); }); $('#forgotPasswordForm').addEventListener('submit', requestPasswordReset); $('#newPasswordForm').addEventListener('submit', setRecoveredPassword); $('#signOutButton').addEventListener('click', () => sb.auth.signOut());
   $('#addPinButton').addEventListener('click', () => { if (state.active === 'all') return toast('핀을 추가할 여행 공간을 선택하세요.'); state.pending = 'add'; $('#addPinButton').classList.add('active'); toast('지도에서 핀을 놓을 위치를 선택하세요.'); });
   $('#routeButton').addEventListener('click', () => {
     if (state.routeMode) {
@@ -411,4 +430,4 @@ function bindUi() {
 }
 
 if (!configured) show('setupView');
-else { sb = createClient(PROJECT_URL, SUPABASE_PUBLISHABLE_KEY); bindUi(); sb.auth.onAuthStateChange(async (_event, session) => { state.user = session?.user || null; if (state.user) { try { await startApp(); } catch (error) { toast(error.message); } } else show('authView'); }); }
+else { sb = createClient(PROJECT_URL, SUPABASE_PUBLISHABLE_KEY); bindUi(); sb.auth.onAuthStateChange(async (event, session) => { state.user = session?.user || null; if (event === 'PASSWORD_RECOVERY' && state.user) { show('authView'); showDialog('newPasswordDialog'); return; } if (state.user) { try { await startApp(); } catch (error) { toast(error.message); } } else show('authView'); }); }
