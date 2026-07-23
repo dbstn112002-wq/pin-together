@@ -86,3 +86,12 @@
 
 - 핀 댓글만 쓸 때: `supabase/comments-migration.sql`
 - 여행 공간 삭제·같은 이름 중복 방지: `supabase/space-delete-migration.sql`
+
+## 2026-07-23 협업·모바일 개선 저장 지점
+
+- 모바일 핀 목록 레이어와 하단 지도 조작 UI를 수정했다.
+- 핀 태그 검색·필터, 긴 메모 축약 표시·수정, 댓글/핀 생성 시각 표시를 추가했다.
+- 두 핀 경로는 도로 경로 API로 표시하며, 현재 경로는 같은 공간 멤버에게 공유하도록 변경했다.
+- 채팅 읽음 수, 읽지 않은 채팅 배지, 종 아이콘의 앱 내 알림 수를 추가했다.
+- 위치 공유는 연결 상태 기반 Presence 방식으로 변경 중이며, 탭 종료 시 공유 상태가 사라지도록 구성했다.
+- Supabase에서 `collaboration-migration.sql`을 실행했다. 읽음 수 즉시 반영을 위해 `message-reads-realtime-migration.sql`을 추가 실행해야 한다.
