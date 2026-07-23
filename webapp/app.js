@@ -2,7 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
 
 const configured = !SUPABASE_URL.startsWith('YOUR_') && !SUPABASE_PUBLISHABLE_KEY.startsWith('YOUR_');
-const masterAccounts = { Master1:'master1@pin-together.invalid' };
+const masterAccounts = { Master1:'master1@example.com' };
 // Data API URL을 실수로 넣어도 Supabase 프로젝트 루트 URL로 정규화합니다.
 const PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, '');
 const colors = { coral:'#ed7668', blue:'#5d8ddd', amber:'#dea23f', green:'#4da887', purple:'#8b72d5' };
@@ -18,7 +18,7 @@ function initials(name='나') { return name.trim().slice(0,1); }
 function spaceName() { return state.active === 'all' ? '전체 지도' : state.spaces.find(s => s.space_id === state.active)?.spaces?.name || '지도'; }
 function pinIcon(pin) {
   const routeIndex = state.route.findIndex(item => item.id === pin.id);
-  return L.divIcon({ className:'', iconSize:[40,34], iconAnchor:[13,25], html:`<div class="pin-marker" style="background:${colors[pin.color] || colors.coral}"><span>${initials(pin.profiles?.nickname || '나')}</span>${routeIndex >= 0 ? `<i class="route-order"><b>${routeIndex + 1}</b></i>` : ''}</div>` });
+  return L.divIcon({ className:'', iconSize:[40,34], iconAnchor:[13,25], html:`<div class="pin-marker" style="background:${colors[pin.color] || colors.coral}"><span>${initials(pin.author_nickname || pin.profiles?.nickname || '나')}</span>${routeIndex >= 0 ? `<i class="route-order"><b>${routeIndex + 1}</b></i>` : ''}</div>` });
 }
 function routeStorageKey() { return `pin-together-route:${state.user?.id || 'guest'}:${state.active}`; }
 function persistRoute() { if (state.active && state.active !== 'all') localStorage.setItem(routeStorageKey(), JSON.stringify(state.route.map(pin => pin.id))); }
@@ -175,7 +175,7 @@ function renderPins() {
   const tag = $('#tagFilter')?.value || '';
   const pins = state.pins.filter(pin => `${pin.title} ${pin.note} ${(pin.tags || []).join(' ')}`.toLowerCase().includes(search) && (!tag || (pin.tags || []).includes(tag)));
   $('#pinCount').textContent = pins.length;
-  const row = pin => `<div class="pin-item ${state.selected.some(p => p.id === pin.id) || state.route.some(p => p.id === pin.id) ? 'selected' : ''}" data-pin="${pin.id}"><span class="dot" style="background:${colors[pin.color]}"></span><button class="pin-open" data-pin="${pin.id}"><strong>${escapeHtml(pin.title)}</strong><small class="pin-note">${escapeHtml(pin.note || '메모 없음')}</small><small>${escapeHtml(pin.profiles?.nickname || '참여자')} · ${timeFull(pin.created_at)}</small>${(pin.tags || []).length ? `<span class="pin-tags">${pin.tags.map(tag => `<i class="pin-tag">#${escapeHtml(tag)}</i>`).join('')}</span>` : ''}</button><span class="pin-actions"><button data-favorite="${pin.id}" title="즐겨찾기">${state.favorites.has(pin.id) ? '★' : '☆'}</button><button data-comment="${pin.id}" title="댓글">💬</button><button data-edit="${pin.id}" title="메모·태그 수정">✎</button><button data-delete-pin="${pin.id}" title="삭제">×</button></span></div>`;
+  const row = pin => `<div class="pin-item ${state.selected.some(p => p.id === pin.id) || state.route.some(p => p.id === pin.id) ? 'selected' : ''}" data-pin="${pin.id}"><span class="dot" style="background:${colors[pin.color]}"></span><button class="pin-open" data-pin="${pin.id}"><strong>${escapeHtml(pin.title)}</strong><small class="pin-note">${escapeHtml(pin.note || '메모 없음')}</small><small>${escapeHtml(pin.author_nickname || pin.profiles?.nickname || '참여자')} · ${timeFull(pin.created_at)}</small>${(pin.tags || []).length ? `<span class="pin-tags">${pin.tags.map(tag => `<i class="pin-tag">#${escapeHtml(tag)}</i>`).join('')}</span>` : ''}</button><span class="pin-actions"><button data-favorite="${pin.id}" title="즐겨찾기">${state.favorites.has(pin.id) ? '★' : '☆'}</button><button data-comment="${pin.id}" title="댓글">💬</button><button data-edit="${pin.id}" title="메모·태그 수정">✎</button><button data-delete-pin="${pin.id}" title="삭제">×</button></span></div>`;
   $('#favoriteList').innerHTML = pins.filter(pin => state.favorites.has(pin.id)).map(row).join('') || '<small>즐겨찾기한 핀이 없습니다.</small>';
   $('#pinList').innerHTML = pins.map(row).join('') || '<small>아직 핀이 없습니다.</small>';
   pins.forEach(pin => L.marker([pin.latitude, pin.longitude], { icon:pinIcon(pin) }).addTo(state.markers).bindPopup(`<strong>${escapeHtml(pin.title)}</strong><br><small>${escapeHtml(pin.note || '메모 없음')}</small><br><small>핀 생성: ${timeFull(pin.created_at)}</small><br><button class="favorite-popup" data-favorite="${pin.id}">☆ 즐겨찾기</button>`).on('click', () => selectPin(pin)));
