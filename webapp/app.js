@@ -8,7 +8,8 @@ const PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, '');
 const colors = { coral:'#ed7668', blue:'#5d8ddd', amber:'#dea23f', green:'#4da887', purple:'#8b72d5' };
 const $ = selector => document.querySelector(selector);
 const state = { user:null, profile:null, spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, commentPin:null, notifications:[], messageReads:new Map() };
-let sb, map, lineLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false;
+let sb, map, lineLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null;
+const locationBroadcasts = new Map();
 
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2800); }
 function show(view) { ['setupView','authView','appView'].forEach(id => $(`#${id}`).classList.toggle('hidden', id !== view)); }
@@ -67,8 +68,10 @@ function renderSharedLocations(rows=[]) {
 }
 function syncLocationPresence() {
   if (!locationChannel) return;
-  const rows = Object.values(locationChannel.presenceState()).flat().filter(row => Number.isFinite(row.latitude) && Number.isFinite(row.longitude));
-  renderSharedLocations(rows);
+  const now = Date.now();
+  const rowsByUser = new Map(Object.values(locationChannel.presenceState()).flat().filter(row => Number.isFinite(row.latitude) && Number.isFinite(row.longitude)).map(row => [row.user_id,row]));
+  locationBroadcasts.forEach((row, userId) => { if (now - new Date(row.updated_at).getTime() > 35000) locationBroadcasts.delete(userId); else if (!rowsByUser.has(userId)) rowsByUser.set(userId,row); });
+  renderSharedLocations([...rowsByUser.values()]);
 }
 function connectLocationPresence() {
   if (state.active === 'all') { locationChannel?.unsubscribe(); locationChannel = null; locationPresenceSpace = null; renderSharedLocations(); return; }
@@ -77,14 +80,18 @@ function connectLocationPresence() {
   locationPresenceSpace = state.active;
   locationChannel = sb.channel(`space-location:${state.active}`, { config:{ presence:{ key:state.user.id } } })
     .on('presence', { event:'sync' }, syncLocationPresence)
-    .subscribe(async status => { if (status === 'SUBSCRIBED' && latestLocationPayload && sharingSpaceId === state.active) await locationChannel.track(latestLocationPayload); });
+    .on('broadcast', { event:'location' }, ({ payload }) => { if (payload?.user_id && Number.isFinite(payload.latitude) && Number.isFinite(payload.longitude)) { locationBroadcasts.set(payload.user_id,payload); syncLocationPresence(); } })
+    .subscribe(async status => { if (status === 'SUBSCRIBED' && latestLocationPayload && sharingSpaceId === state.active) { await locationChannel.track(latestLocationPayload); await locationChannel.send({ type:'broadcast', event:'location', payload:latestLocationPayload }); } });
 }
 async function publishLocation(position) {
   if (!sharingSpaceId || sharingSpaceId !== state.active) return;
   const { latitude, longitude, accuracy } = position.coords;
   latestLocationPayload = { user_id:state.user.id, nickname:state.profile.nickname, latitude, longitude, accuracy, updated_at:new Date().toISOString() };
   if (!locationChannel) connectLocationPresence();
+  locationBroadcasts.set(state.user.id, latestLocationPayload);
   const result = await locationChannel.track(latestLocationPayload);
+  await locationChannel.send({ type:'broadcast', event:'location', payload:latestLocationPayload });
+  syncLocationPresence();
   if (result !== 'ok') toast('위치 공유 연결에 실패했습니다.');
 }
 async function stopLocationShare(silent=false) {
@@ -398,8 +405,9 @@ async function setRecoveredPassword(event) {
   await sb.auth.signOut();
 }
 async function searchPlace(event) { event.preventDefault(); const query = $('#placeSearch').value.trim(); if (!query) return; $('#placeResults').innerHTML = '<button class="result">검색 중…</button>'; try { const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=ko&q=${encodeURIComponent(query)}`); const results = await response.json(); $('#placeResults').innerHTML = results.map((item,index) => `<button class="result" data-result="${index}">${escapeHtml(item.display_name.split(',').slice(0,2).join(','))}<small>${escapeHtml(item.display_name)}</small></button>`).join('') || '<button class="result">검색 결과가 없습니다.</button>'; document.querySelectorAll('[data-result]').forEach(button => button.addEventListener('click', () => { const item = results[button.dataset.result]; map.flyTo([item.lat,item.lon], 15); $('#placeResults').innerHTML = ''; })); } catch { $('#placeResults').innerHTML = '<button class="result">검색에 실패했습니다.</button>'; } }
-function subscribe() { state.channel?.unsubscribe(); state.channel = sb.channel(`space-${state.active}`).on('postgres_changes', { event:'*', schema:'public', table:'pins' }, () => loadPins()).on('postgres_changes', { event:'*', schema:'public', table:'messages', filter: state.active === 'all' ? undefined : `space_id=eq.${state.active}` }, () => { void loadMessages(); void loadUnreadCount(); }).on('postgres_changes', { event:'*', schema:'public', table:'message_reads' }, () => { void loadMessages(); void loadUnreadCount(); }).on('postgres_changes', { event:'*', schema:'public', table:'space_routes', filter: state.active === 'all' ? undefined : `space_id=eq.${state.active}` }, () => { void loadPins(); }).on('postgres_changes', { event:'*', schema:'public', table:'route_stops' }, () => { void loadPins(); }).on('postgres_changes', { event:'*', schema:'public', table:'notifications', filter:`user_id=eq.${state.user.id}` }, () => void loadNotifications()).subscribe(); }
-async function refresh() { await loadSpaces(); await loadPins(); await loadMessages(); await loadUnreadCount(); await loadNotifications(); connectLocationPresence(); subscribe(); $('#spaceSelect').value = state.active; $('#deleteSpaceButton').classList.toggle('hidden', state.active === 'all' || currentRole() !== 'owner'); }
+function subscribe() { state.channel?.unsubscribe(); state.channel = sb.channel(`space-${state.active}`).on('postgres_changes', { event:'*', schema:'public', table:'pins' }, () => void loadPins()).on('postgres_changes', { event:'*', schema:'public', table:'messages', filter: state.active === 'all' ? undefined : `space_id=eq.${state.active}` }, () => { void loadMessages(); void loadUnreadCount(); }).on('postgres_changes', { event:'*', schema:'public', table:'message_reads' }, () => { void loadMessages(); void loadUnreadCount(); }).on('postgres_changes', { event:'*', schema:'public', table:'space_routes', filter: state.active === 'all' ? undefined : `space_id=eq.${state.active}` }, () => { void loadPins(); }).on('postgres_changes', { event:'*', schema:'public', table:'route_stops' }, () => { void loadPins(); }).on('postgres_changes', { event:'*', schema:'public', table:'notifications', filter:`user_id=eq.${state.user.id}` }, event => { if (event.eventType === 'INSERT' && event.new?.body) toast(event.new.body); void loadNotifications(); }).subscribe(); }
+function startSafetySync() { clearInterval(safetySyncTimer); safetySyncTimer = setInterval(() => { if (document.hidden || !state.user) return; void loadPins().catch(() => {}); void loadNotifications().catch(() => {}); if (state.active !== 'all') { void loadMessages().catch(() => {}); void loadUnreadCount().catch(() => {}); } }, 5000); }
+async function refresh() { await loadSpaces(); await loadPins(); await loadMessages(); await loadUnreadCount(); await loadNotifications(); connectLocationPresence(); subscribe(); startSafetySync(); $('#spaceSelect').value = state.active; $('#deleteSpaceButton').classList.toggle('hidden', state.active === 'all' || currentRole() !== 'owner'); }
 async function startApp() {
   // Leaflet은 숨겨진 요소에서 초기화하면 지도 크기를 0으로 계산할 수 있습니다.
   show('appView');
