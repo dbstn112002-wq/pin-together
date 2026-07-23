@@ -8,7 +8,7 @@ const PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, '');
 const colors = { coral:'#ed7668', blue:'#5d8ddd', amber:'#dea23f', green:'#4da887', purple:'#8b72d5' };
 const $ = selector => document.querySelector(selector);
 const state = { user:null, profile:null, sessionNickname:'', spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], routes:[], activeRouteId:null, routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, commentPin:null, notifications:[], messageReads:new Map() };
-let sb, map, lineLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null;
+let sb, map, lineLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null, notificationHistoryOpen = false, closingNotificationFromBack = false;
 const locationBroadcasts = new Map();
 
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2800); }
@@ -350,6 +350,7 @@ async function loadNotifications() {
 async function openNotifications() {
   $('#notificationsList').innerHTML = state.notifications.map(item => `<article class="notification-item"><strong>${escapeHtml(item.body)}</strong><small>${timeText(item.created_at)}</small></article>`).join('') || '<p class="label">새 알림이 없습니다.</p>';
   showDialog('notificationsDialog');
+  if (!notificationHistoryOpen) { history.pushState({ pinTogetherModal:'notifications' }, ''); notificationHistoryOpen = true; }
   const unreadIds = state.notifications.filter(item => !item.read_at).map(item => item.id);
   if (unreadIds.length) { await sb.from('notifications').update({ read_at:new Date().toISOString() }).in('id', unreadIds); await loadNotifications(); }
 }
@@ -437,6 +438,9 @@ function scrollChatToBottom(smooth=false) { const messages = $('#messages'); if 
 
 function bindUi() {
   document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => $(`#${button.dataset.close}`).close()));
+  $('#notificationsDialog').addEventListener('click', event => { if (event.target === event.currentTarget) $('#notificationsDialog').close(); });
+  $('#notificationsDialog').addEventListener('close', () => { if (notificationHistoryOpen && !closingNotificationFromBack) { notificationHistoryOpen = false; history.back(); } closingNotificationFromBack = false; });
+  window.addEventListener('popstate', () => { if ($('#notificationsDialog').open) { closingNotificationFromBack = true; $('#notificationsDialog').close(); } notificationHistoryOpen = false; });
   $('#sessionNicknameDialog').addEventListener('cancel', event => event.preventDefault());
   document.querySelectorAll('[data-auth]').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('[data-auth]').forEach(item => item.classList.toggle('active', item === button)); const signup = button.dataset.auth === 'signup'; $('#nicknameField').classList.toggle('hidden', !signup); $('#nickname').required = signup; $('#authSubmit').textContent = signup ? '회원가입' : '로그인'; $('#authHelp').textContent = signup ? '회원가입에는 실제 이메일 주소를 입력해 주세요.' : '가입한 이메일 또는 마스터 계정 Master1로 로그인하세요.'; }));
   $('#authForm').addEventListener('submit', async event => { event.preventDefault(); const signup = $('[data-auth].active').dataset.auth === 'signup'; const loginId = $('#email').value.trim(); const masterEmail = loginId.toLowerCase() === 'master1' ? masterAccounts.Master1 : null; if (signup && masterEmail) return toast('Master1은 회원가입할 수 없는 마스터 계정입니다.'); if (signup && !loginId.includes('@')) return toast('회원가입에는 이메일 주소를 입력해 주세요.'); const email = masterEmail || loginId, password = $('#password').value; if (signup && password.length < 8) return toast('회원가입 비밀번호는 8자 이상이어야 합니다.'); const result = signup ? await sb.auth.signUp({ email, password, options:{ data:{ nickname:$('#nickname').value.trim() }, emailRedirectTo:`${location.origin}${location.pathname}` } }) : await sb.auth.signInWithPassword({ email, password }); if (result.error) return toast(result.error.message); if (signup && !result.data.session) return toast('가입 확인 메일을 보냈습니다. 이메일 인증 후 로그인하세요.'); });
