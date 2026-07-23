@@ -2,12 +2,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
 
 const configured = !SUPABASE_URL.startsWith('YOUR_') && !SUPABASE_PUBLISHABLE_KEY.startsWith('YOUR_');
+const masterAccounts = { Master1:'master1@pin-together.invalid' };
 // Data API URL을 실수로 넣어도 Supabase 프로젝트 루트 URL로 정규화합니다.
 const PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, '');
 const colors = { coral:'#ed7668', blue:'#5d8ddd', amber:'#dea23f', green:'#4da887', purple:'#8b72d5' };
 const $ = selector => document.querySelector(selector);
 const state = { user:null, profile:null, spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, commentPin:null, notifications:[], messageReads:new Map() };
-let sb, map, lineLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null;
+let sb, map, lineLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false;
 
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2800); }
 function show(view) { ['setupView','authView','appView'].forEach(id => $(`#${id}`).classList.toggle('hidden', id !== view)); }
@@ -345,7 +346,7 @@ async function openNotifications() {
 async function createSpace(event) { event.preventDefault(); const name = $('#spaceName').value.trim(); const { data, error } = await sb.rpc('create_space', { space_name:name }); if (error) return toast(error.message); closeDialogs(); $('#spaceForm').reset(); state.active = data; await refresh(); toast('새 여행 공간을 만들었습니다.'); }
 async function joinSpace(event) { event.preventDefault(); const code = $('#inviteCode').value.trim(); const { data, error } = await sb.rpc('accept_invitation', { invite_code:code }); if (error) return toast(error.message); closeDialogs(); state.active = data; await refresh(); toast('여행 공간에 참가했습니다.'); }
 async function makeInvite() { if (state.active === 'all') return toast('초대할 여행 공간을 선택하세요.'); const role = state.spaces.find(s => s.space_id === state.active)?.role; if (role !== 'owner') return toast('공간 소유자만 초대 링크를 만들 수 있습니다.'); const { data, error } = await sb.from('invitations').insert({ space_id:state.active, created_by:state.user.id, role:'editor' }).select('code').single(); if (error) return toast(error.message); const link = `${location.origin}${location.pathname}?invite=${data.code}`; await navigator.clipboard?.writeText(link); prompt('초대 링크를 복사해 전달하세요.', link); }
-async function sendMessage(event) { event.preventDefault(); const body = $('#messageInput').value.trim(); if (!body) return; if (state.active === 'all') return toast('채팅할 여행 공간을 선택하세요.'); const { error } = await sb.from('messages').insert({ space_id:state.active, author_id:state.user.id, body }); if (error) return toast(error.message); $('#messageInput').value = ''; }
+async function sendMessage(event) { event.preventDefault(); const body = $('#messageInput').value.trim(); if (!body) return; if (state.active === 'all') return toast('채팅할 여행 공간을 선택하세요.'); const { error } = await sb.from('messages').insert({ space_id:state.active, author_id:state.user.id, body }); if (error) return toast(error.message); $('#messageInput').value = ''; await loadMessages(); await loadUnreadCount(); }
 async function saveProfile(event) {
   event.preventDefault();
   const nickname = $('#profileNickname').value.trim();
@@ -365,6 +366,17 @@ async function saveProfile(event) {
   $('#profilePasswordConfirm').value = '';
   closeDialogs();
   toast(password ? '프로필과 비밀번호를 저장했습니다.' : '닉네임을 저장했습니다.');
+}
+async function saveSessionNickname(event) {
+  event.preventDefault();
+  const nickname = $('#sessionNickname').value.trim();
+  const { error } = await sb.from('profiles').update({ nickname }).eq('id',state.user.id);
+  if (error) return toast(error.message);
+  state.profile.nickname = nickname;
+  $('#profileButton').textContent = initials(nickname);
+  nicknamePromptedForSession = true;
+  closeDialogs();
+  toast('닉네임을 설정했습니다.');
 }
 async function requestPasswordReset(event) {
   event.preventDefault();
@@ -395,10 +407,14 @@ async function startApp() {
   else map.invalidateSize();
   await loadProfile();
   await refresh();
+  const invite = new URLSearchParams(location.search).get('invite');
+  if (!nicknamePromptedForSession && !$('#sessionNicknameDialog').open && !invite) {
+    $('#sessionNickname').value = '';
+    showDialog('sessionNicknameDialog');
+  }
   // CSS Grid 레이아웃이 완료된 뒤 한 번 더 실행해야 전체 지도 타일이 채워집니다.
   requestAnimationFrame(() => requestAnimationFrame(() => map.invalidateSize({ pan:false, animate:false })));
   setTimeout(() => map.invalidateSize({ pan:false, animate:false }), 250);
-  const invite = new URLSearchParams(location.search).get('invite');
   if (invite) { $('#inviteCode').value = invite; showDialog('joinDialog'); }
 }
 function escapeHtml(value='') { return String(value).replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char])); }
@@ -407,10 +423,10 @@ function timeFull(value) { return new Intl.DateTimeFormat('ko-KR',{year:'numeric
 
 function bindUi() {
   document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => $(`#${button.dataset.close}`).close()));
-  document.querySelectorAll('[data-auth]').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('[data-auth]').forEach(b => b.classList.toggle('active', b === button)); const signup = button.dataset.auth === 'signup'; $('#nicknameField').classList.toggle('hidden', !signup); $('#nickname').required = signup; $('#authSubmit').textContent = signup ? '회원가입' : '로그인'; $('#authHelp').textContent = signup ? '처음이신가요? 이메일과 비밀번호로 가입하세요.' : '가입한 이메일로 로그인하세요.'; }));
-  $('#authForm').addEventListener('submit', async event => { event.preventDefault(); const signup = $('[data-auth].active').dataset.auth === 'signup'; const email = $('#email').value.trim(), password = $('#password').value; const result = signup ? await sb.auth.signUp({ email, password, options:{ data:{ nickname:$('#nickname').value.trim() }, emailRedirectTo:`${location.origin}${location.pathname}` } }) : await sb.auth.signInWithPassword({ email, password }); if (result.error) return toast(result.error.message); if (signup && !result.data.session) return toast('이메일 인증 링크를 확인한 후 로그인하세요.'); });
+  $('#sessionNicknameDialog').addEventListener('cancel', event => event.preventDefault());
+  $('#authForm').addEventListener('submit', async event => { event.preventDefault(); const account = $('#masterAccount').value; const email = masterAccounts[account]; const result = await sb.auth.signInWithPassword({ email, password:$('#password').value }); if (result.error) return toast('마스터 계정 또는 비밀번호가 올바르지 않습니다.'); });
   $('#spaceSelect').addEventListener('change', async event => { if (locationWatchId !== null) stopLocationShare(true); state.active = event.target.value; state.selected = []; state.route = []; updateMeasure(); await refresh(); });
-  $('#newSpaceButton').addEventListener('click', () => showDialog('spaceDialog')); $('#joinSpaceButton').addEventListener('click', () => showDialog('joinDialog')); $('#inviteButton').addEventListener('click', makeInvite); $('#deleteSpaceButton').addEventListener('click', deleteSpace); $('#notificationButton').addEventListener('click', openNotifications); $('#mobilePanelButton').addEventListener('click', () => $('.app aside').classList.toggle('open')); $('#spaceForm').addEventListener('submit', createSpace); $('#joinForm').addEventListener('submit', joinSpace); $('#pinForm').addEventListener('submit', createPin); $('#messageForm').addEventListener('submit', sendMessage); $('#commentForm').addEventListener('submit', addComment); $('#profileButton').addEventListener('click', () => { $('#profileNickname').value = state.profile.nickname; $('#profilePassword').value = ''; $('#profilePasswordConfirm').value = ''; showDialog('profileDialog'); }); $('#profileForm').addEventListener('submit', saveProfile); $('#forgotPasswordButton').addEventListener('click', () => { $('#forgotPasswordEmail').value = $('#email').value.trim(); showDialog('forgotPasswordDialog'); }); $('#forgotPasswordForm').addEventListener('submit', requestPasswordReset); $('#newPasswordForm').addEventListener('submit', setRecoveredPassword); $('#signOutButton').addEventListener('click', () => sb.auth.signOut());
+  $('#newSpaceButton').addEventListener('click', () => showDialog('spaceDialog')); $('#joinSpaceButton').addEventListener('click', () => showDialog('joinDialog')); $('#inviteButton').addEventListener('click', makeInvite); $('#deleteSpaceButton').addEventListener('click', deleteSpace); $('#notificationButton').addEventListener('click', openNotifications); $('#mobilePanelButton').addEventListener('click', () => $('.app aside').classList.toggle('open')); $('#spaceForm').addEventListener('submit', createSpace); $('#joinForm').addEventListener('submit', joinSpace); $('#pinForm').addEventListener('submit', createPin); $('#messageForm').addEventListener('submit', sendMessage); $('#commentForm').addEventListener('submit', addComment); $('#profileButton').addEventListener('click', () => { $('#profileNickname').value = state.profile.nickname; $('#profilePassword').value = ''; $('#profilePasswordConfirm').value = ''; showDialog('profileDialog'); }); $('#profileForm').addEventListener('submit', saveProfile); $('#sessionNicknameForm').addEventListener('submit', saveSessionNickname); $('#signOutButton').addEventListener('click', () => sb.auth.signOut());
   $('#addPinButton').addEventListener('click', () => { if (state.active === 'all') return toast('핀을 추가할 여행 공간을 선택하세요.'); state.pending = 'add'; $('#addPinButton').classList.add('active'); toast('지도에서 핀을 놓을 위치를 선택하세요.'); });
   $('#routeButton').addEventListener('click', () => {
     if (state.routeMode) {
@@ -433,4 +449,4 @@ function bindUi() {
 }
 
 if (!configured) show('setupView');
-else { sb = createClient(PROJECT_URL, SUPABASE_PUBLISHABLE_KEY); bindUi(); sb.auth.onAuthStateChange(async (event, session) => { state.user = session?.user || null; if (event === 'PASSWORD_RECOVERY' && state.user) { show('authView'); showDialog('newPasswordDialog'); return; } if (state.user) { try { await startApp(); } catch (error) { toast(error.message); } } else show('authView'); }); }
+else { sb = createClient(PROJECT_URL, SUPABASE_PUBLISHABLE_KEY); bindUi(); sb.auth.onAuthStateChange(async (event, session) => { state.user = session?.user || null; if (!state.user) nicknamePromptedForSession = false; if (event === 'PASSWORD_RECOVERY' && state.user) { show('authView'); showDialog('newPasswordDialog'); return; } if (state.user) { try { await startApp(); } catch (error) { toast(error.message); } } else show('authView'); }); }
