@@ -249,7 +249,9 @@ async function saveSharedRoute() {
 function updateMeasure() {
   lineLayer.clearLayers();
   const showingRoute = state.routeMode || state.route.length >= 2;
-  const route = showingRoute ? state.route : state.selected;
+  const route = showingRoute ? state.route : [];
+  if (!showingRoute) { $('#measureCard').classList.add('hidden'); return; }
+  $('#measureCard').classList.remove('hidden');
   $('#measureTitle').textContent = showingRoute ? '저장된 경로' : '거리 측정';
   if (route.length < 2) { $('#measureValue').textContent = `${route.length}/2개 핀 선택됨`; $('#measureHint').textContent = state.routeMode ? '연결할 핀을 1번부터 순서대로 선택하세요. 선택 즉시 자동 저장됩니다.' : '핀 두 개를 선택하세요.'; return; }
   const distance = route.slice(1).reduce((sum, pin, index) => sum + map.distance([route[index].latitude, route[index].longitude], [pin.latitude, pin.longitude]), 0) / 1000;
