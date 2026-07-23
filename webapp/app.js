@@ -180,6 +180,16 @@ function renderPins() {
   document.querySelectorAll('[data-delete-pin]').forEach(el => el.addEventListener('click', () => deletePin(el.dataset.deletePin)));
   document.querySelectorAll('[data-comment]').forEach(el => el.addEventListener('click', () => openComments(el.dataset.comment)));
   document.querySelectorAll('.favorite-popup').forEach(el => el.addEventListener('click', () => toggleFavorite(el.dataset.favorite)));
+  renderRoutes();
+}
+function renderRoutes() {
+  const list = $('#routeList');
+  if (!list) return;
+  $('#routeCount').textContent = state.route.length;
+  if (state.active === 'all') { list.innerHTML = '<small>여행 공간을 선택하면 공유 경로를 볼 수 있습니다.</small>'; return; }
+  if (state.route.length < 2) { list.innerHTML = '<small>아직 공유된 경로가 없습니다. 경로 지정에서 핀 두 개를 선택하세요.</small>'; return; }
+  list.innerHTML = state.route.map((pin,index) => `<button class="route-item" data-route-pin="${pin.id}"><b>${index + 1}</b><span><strong>${escapeHtml(pin.title)}</strong><small>${escapeHtml(pin.note || '메모 없음')}</small></span></button>`).join('');
+  document.querySelectorAll('[data-route-pin]').forEach(button => button.addEventListener('click', () => { const pin = state.pins.find(item => item.id === button.dataset.routePin); if (pin) map.flyTo([pin.latitude,pin.longitude],15); }));
 }
 function selectPin(pin) {
   if (state.routeMode) {
@@ -363,7 +373,7 @@ function bindUi() {
   }); $('#closeMeasure').addEventListener('click', () => $('#measureCard').classList.add('hidden')); $('#pinSearch').addEventListener('input', renderPins); $('#tagFilter').addEventListener('change', renderPins); $('#placeSearchForm').addEventListener('submit', searchPlace);
   $('#locateButton').addEventListener('click', () => { if (!navigator.geolocation) return toast('이 브라우저는 위치 기능을 지원하지 않습니다.'); toast('현재 위치를 찾는 중입니다.'); navigator.geolocation.getCurrentPosition(pos => { const point = [pos.coords.latitude,pos.coords.longitude]; map.flyTo(point,16,{animate:true,duration:.6}); L.circleMarker(point,{radius:9,color:'#fff',weight:3,fillColor:colors.blue,fillOpacity:1}).addTo(map); toast('현재 위치로 이동했습니다.'); }, () => toast('현재 위치 권한을 허용해 주세요.'), { enableHighAccuracy:true, maximumAge:15000, timeout:15000 }); });
   $('#locationShareButton').addEventListener('click', startLocationShare);
-  document.querySelectorAll('[data-panel]').forEach(button => button.addEventListener('click', async () => { document.querySelectorAll('[data-panel]').forEach(b => b.classList.toggle('active', b === button)); const chat = button.dataset.panel === 'chat'; $('#pinsPanel').classList.toggle('hidden',chat); $('#chatPanel').classList.toggle('hidden',!chat); if (chat) await loadMessages(); }));
+  document.querySelectorAll('[data-panel]').forEach(button => button.addEventListener('click', async () => { document.querySelectorAll('[data-panel]').forEach(b => b.classList.toggle('active', b === button)); const panel = button.dataset.panel; $('#pinsPanel').classList.toggle('hidden',panel !== 'pins'); $('#routesPanel').classList.toggle('hidden',panel !== 'routes'); $('#chatPanel').classList.toggle('hidden',panel !== 'chat'); if (panel === 'chat') await loadMessages(); if (panel === 'routes') renderRoutes(); }));
 }
 
 if (!configured) show('setupView');
