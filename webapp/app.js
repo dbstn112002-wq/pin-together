@@ -1,20 +1,21 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PHOTO_SERVER_URL } from './config.js?v=20260724-master-accounts';
 
 const configured = !SUPABASE_URL.startsWith('YOUR_') && !SUPABASE_PUBLISHABLE_KEY.startsWith('YOUR_');
-const masterAccounts = { Master1:'master1@example.com' };
+const masterAccounts = Object.fromEntries([1,2,3,4,5].map(number => [`Master${number}`, `master${number}@example.com`]));
 // Data API URL을 실수로 넣어도 Supabase 프로젝트 루트 URL로 정규화합니다.
 const PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, '');
 const colors = { coral:'#ed7668', blue:'#5d8ddd', amber:'#dea23f', green:'#4da887', purple:'#8b72d5' };
 const $ = selector => document.querySelector(selector);
-const state = { user:null, profile:null, sessionNickname:'', spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], draftRoute:[], routes:[], activeRouteId:null, routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, commentPin:null, notifications:[], messageReads:new Map() };
-let sb, map, lineLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null, notificationHistoryOpen = false, closingNotificationFromBack = false, mobilePanelHistoryOpen = false, exitConfirmed = false;
+const state = { user:null, profile:null, sessionNickname:'', spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], draftRoute:[], routes:[], activeRouteId:null, routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, commentPin:null, commentSpaceId:null, notifications:[], messageReads:new Map(), photos:[], photoOrigins:new Map(), pendingCommentPhotos:[] };
+let sb, map, lineLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null, notificationHistoryOpen = false, closingNotificationFromBack = false, mobilePanelHistoryOpen = false, exitConfirmed = false, photoViewerHistoryOpen = false, closingPhotoViewerFromBack = false;
 const locationBroadcasts = new Map();
 
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2800); }
 function show(view) { ['setupView','authView','appView'].forEach(id => $(`#${id}`).classList.toggle('hidden', id !== view)); }
 function showDialog(id) { $(`#${id}`).showModal(); }
 function closeDialogs() { document.querySelectorAll('dialog[open]').forEach(d => d.close()); }
+async function signOut() { closeDialogs(); await sb.auth.signOut(); }
 function closeMobilePanel(fromHistory=false) {
   const aside = $('.app aside');
   if (!aside?.classList.contains('open')) return;
@@ -30,7 +31,7 @@ function toggleMobilePanel() {
   mobilePanelHistoryOpen = true;
 }
 function initials(name='나') { return name.trim().slice(0,1); }
-function isMasterUser() { return state.user?.email === masterAccounts.Master1; }
+function isMasterUser() { return Object.values(masterAccounts).includes(state.user?.email); }
 function sessionNicknameKey() { return `pin-together-session-nickname:${state.user?.id || 'guest'}`; }
 function activeNickname() { return state.sessionNickname || state.profile?.nickname || '참여자'; }
 function spaceName() { return state.active === 'all' ? '전체 지도' : state.spaces.find(s => s.space_id === state.active)?.spaces?.name || '지도'; }
@@ -208,6 +209,81 @@ async function loadUnreadCount() {
   $('#chatUnreadBadge').textContent = unread || '';
   $('#chatUnreadBadge').classList.toggle('hidden', !unread);
 }
+async function photoHeaders() {
+  const { data } = await sb.auth.getSession();
+  if (!data.session?.access_token) throw new Error('사진을 보려면 다시 로그인해 주세요.');
+  return { Authorization:`Bearer ${data.session.access_token}` };
+}
+async function photoFetch(path, options={}) {
+  const headers = { ...(await photoHeaders()), ...(options.headers || {}) };
+  const response = await fetch(`${PHOTO_SERVER_URL}${path}`, { ...options, headers });
+  if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.detail || '사진 서버에 연결하지 못했습니다.'); }
+  return response;
+}
+async function loadSpacePhotos(spaceId=state.active) {
+  if (!spaceId || spaceId === 'all') { state.photos = []; return; }
+  try { state.photos = (await (await photoFetch(`/spaces/${spaceId}/photos`)).json()).items || []; await loadPhotoOrigins(); }
+  catch { state.photos = []; }
+}
+async function loadPhotoOrigins() {
+  const commentIds = [...new Set(state.photos.filter(photo => photo.source_type === 'comment').map(photo => photo.source_id))];
+  state.photoOrigins = new Map(); if (!commentIds.length) return;
+  const { data } = await sb.from('pin_comments').select('id,pin_id').in('id', commentIds);
+  (data || []).forEach(comment => { const pin = state.pins.find(item => item.id === comment.pin_id); if (pin) state.photoOrigins.set(comment.id, pin); });
+}
+function photoByComment(commentId) { return state.photos.filter(photo => photo.source_type === 'comment' && photo.source_id === commentId); }
+function photoMarkup(photo, className='') { return `<button type="button" class="photo-thumb ${className}" data-view-photo="${photo.id}" title="사진 크게 보기"><img data-protected-photo="${photo.id}" alt="첨부 사진" /></button>`; }
+async function hydratePhotos(root=document) {
+  await Promise.all([...root.querySelectorAll('[data-protected-photo]')].map(async image => {
+    try { const blob = await (await photoFetch(`/photos/${image.dataset.protectedPhoto}`)).blob(); image.src = URL.createObjectURL(blob); image.onload = () => URL.revokeObjectURL(image.src); }
+    catch { image.closest('.photo-thumb')?.classList.add('unavailable'); }
+  }));
+  root.querySelectorAll('[data-view-photo]').forEach(button => button.addEventListener('click', () => openPhotoViewer(button.dataset.viewPhoto)));
+}
+function renderPhotoGallery() {
+  const grid = $('#photoGrid'); if (!grid) return;
+  const query = $('#photoSearch')?.value.trim().toLowerCase() || '';
+  const photos = state.photos.filter(photo => `${photo.tags.join(' ')} ${photo.source_type}`.toLowerCase().includes(query));
+  $('#photoCount').textContent = state.photos.length;
+  grid.innerHTML = photos.map(photo => { const origin = state.photoOrigins.get(photo.source_id); return `<article class="gallery-card">${photoMarkup(photo)}<div class="gallery-meta"><button type="button" class="photo-origin" data-photo-origin="${photo.id}">${origin ? `📍 ${escapeHtml(origin.title)} · 댓글` : '댓글 사진'}</button><span>${photo.tags.map(tag => `#${escapeHtml(tag)}`).join(' ') || '태그 없음'}</span><button type="button" data-edit-photo="${photo.id}">태그</button><button type="button" data-delete-photo="${photo.id}">삭제</button></div></article>`; }).join('') || '<p class="label">아직 사진이 없습니다.</p>';
+  void hydratePhotos(grid);
+  grid.querySelectorAll('[data-edit-photo]').forEach(button => button.addEventListener('click', () => editPhotoTags(button.dataset.editPhoto)));
+  grid.querySelectorAll('[data-delete-photo]').forEach(button => button.addEventListener('click', () => deletePhoto(button.dataset.deletePhoto)));
+  grid.querySelectorAll('[data-photo-origin]').forEach(button => button.addEventListener('click', () => { const photo = state.photos.find(item => item.id === button.dataset.photoOrigin); const pin = photo && state.photoOrigins.get(photo.source_id); if (!pin) return toast('원래 핀 정보를 찾을 수 없습니다.'); map.flyTo([pin.latitude,pin.longitude], 15); void openComments(pin.id); }));
+}
+async function editPhotoTags(photoId) {
+  const photo = state.photos.find(item => item.id === photoId); if (!photo) return;
+  const value = prompt('사진 태그를 쉼표로 구분해 입력하세요.', photo.tags.join(', ')); if (value === null) return;
+  const tags = [...new Set(value.split(',').map(tag => tag.trim().replace(/^#/, '')).filter(Boolean))].slice(0, 10);
+  try { await photoFetch(`/photos/${photoId}`, { method:'PATCH', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ tags }) }); await loadSpacePhotos(); renderPhotoGallery(); }
+  catch (error) { toast(error.message); }
+}
+async function deletePhoto(photoId) {
+  if (!confirm('이 사진을 삭제할까요?')) return;
+  try { await photoFetch(`/photos/${photoId}`, { method:'DELETE' }); await loadSpacePhotos(); renderPhotoGallery(); if (state.commentPin) await openComments(state.commentPin); }
+  catch (error) { toast(error.message); }
+}
+async function openPhotoViewer(photoId) {
+  const image = $('#photoViewerImage'), stage = $('.photo-viewer-stage'); $('#photoViewerDialog').showModal(); if (!photoViewerHistoryOpen) { history.pushState({ pinTogetherModal:'photo-viewer' }, ''); photoViewerHistoryOpen = true; } image.removeAttribute('src'); image.dataset.scale = '1'; image.style.transform = ''; image.style.width = ''; image.style.height = '';
+  try { const blob = await (await photoFetch(`/photos/${photoId}`)).blob(); image.src = URL.createObjectURL(blob); image.onload = () => { const ratio = Math.min(stage.clientWidth / image.naturalWidth, stage.clientHeight / image.naturalHeight); image.style.width = `${Math.max(1, Math.floor(image.naturalWidth * ratio))}px`; image.style.height = `${Math.max(1, Math.floor(image.naturalHeight * ratio))}px`; URL.revokeObjectURL(image.src); }; }
+  catch { $('#photoViewerStatus').textContent = '사진을 불러올 수 없습니다.'; }
+}
+function bindPhotoViewer() {
+  const image = $('#photoViewerImage'); const pointers = new Map(); let baseDistance = 0, baseScale = 1, x = 0, y = 0, startX = 0, startY = 0;
+  const apply = () => { const scale = Number(image.dataset.scale || 1); image.style.transform = `translate(${x}px,${y}px) scale(${scale})`; };
+  image.addEventListener('pointerdown', event => { image.setPointerCapture(event.pointerId); pointers.set(event.pointerId, event); if (pointers.size === 1) { startX = event.clientX - x; startY = event.clientY - y; } else if (pointers.size === 2) { const [a,b] = [...pointers.values()]; baseDistance = Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY); baseScale = Number(image.dataset.scale || 1); } });
+  image.addEventListener('pointermove', event => { if (!pointers.has(event.pointerId)) return; pointers.set(event.pointerId, event); if (pointers.size === 2) { const [a,b] = [...pointers.values()]; const distance = Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY); image.dataset.scale = String(Math.min(4, Math.max(1, baseScale * distance / baseDistance))); } else if (pointers.size === 1 && Number(image.dataset.scale || 1) > 1) { x = event.clientX - startX; y = event.clientY - startY; } apply(); });
+  const release = event => { pointers.delete(event.pointerId); if (!pointers.size && Number(image.dataset.scale || 1) <= 1) { x = 0; y = 0; apply(); } }; image.addEventListener('pointerup', release); image.addEventListener('pointercancel', release);
+}
+function renderCommentPhotoPreview() {
+  const preview = $('#commentPhotoPreview');
+  preview.innerHTML = state.pendingCommentPhotos.map((item, index) => `<article class="pending-photo"><img src="${item.url}" alt="선택한 사진" /><input data-photo-tags="${index}" value="${escapeHtml(item.tags)}" maxlength="100" placeholder="태그: 예) 카페, 야경" /><button type="button" data-remove-photo="${index}" aria-label="사진 제거">×</button></article>`).join('');
+  preview.querySelectorAll('[data-photo-tags]').forEach(input => input.addEventListener('input', () => { state.pendingCommentPhotos[Number(input.dataset.photoTags)].tags = input.value; }));
+  preview.querySelectorAll('[data-remove-photo]').forEach(button => button.addEventListener('click', () => { const [removed] = state.pendingCommentPhotos.splice(Number(button.dataset.removePhoto), 1); URL.revokeObjectURL(removed.url); renderCommentPhotoPreview(); }));
+}
+async function uploadCommentPhotos(commentId, items) {
+  for (const item of items) { const form = new FormData(); form.append('space_id', state.commentSpaceId || state.active); form.append('source_type', 'comment'); form.append('source_id', commentId); form.append('tags', JSON.stringify(item.tags.split(',').map(tag => tag.trim().replace(/^#/, '')).filter(Boolean))); form.append('file', item.file); await photoFetch('/photos', { method:'POST', body:form }); }
+}
 function renderPins() {
   if (state.markers) state.markers.clearLayers(); else state.markers = L.layerGroup().addTo(map);
   const search = $('#pinSearch').value.trim().toLowerCase();
@@ -366,12 +442,14 @@ async function deletePin(pinId) {
   if (error) return toast('삭제 권한이 없거나 삭제에 실패했습니다.'); toast('핀을 삭제했습니다.');
 }
 async function openComments(pinId) {
-  state.commentPin = pinId; const pin = state.pins.find(item => item.id === pinId); $('#commentsTitle').textContent = `${pin.title} 댓글`;
+  state.commentPin = pinId; const pin = state.pins.find(item => item.id === pinId); state.commentSpaceId = pin.space_id; $('#commentsTitle').textContent = `${pin.title} 댓글`;
   const { data, error } = await sb.from('pin_comments').select('*, profiles!pin_comments_author_id_fkey(nickname)').eq('pin_id', pinId).order('created_at');
   if (error) return toast('댓글 기능을 사용하려면 comments-migration.sql을 먼저 실행하세요.');
-  $('#commentsList').innerHTML = (data || []).map(item => `<article class="comment"><small>${escapeHtml(item.profiles?.nickname || '참여자')} · ${timeFull(item.created_at)}</small>${escapeHtml(item.body)}</article>`).join('') || '<p class="label">아직 댓글이 없습니다.</p>';
+  await loadSpacePhotos(state.commentSpaceId);
+  $('#commentsList').innerHTML = (data || []).map(item => `<article class="comment"><small>${escapeHtml(item.profiles?.nickname || '참여자')} · ${timeFull(item.created_at)}</small>${escapeHtml(item.body)}${photoByComment(item.id).length ? `<div class="comment-photos">${photoByComment(item.id).map(photo => photoMarkup(photo)).join('')}</div>` : ''}</article>`).join('') || '<p class="label">아직 댓글이 없습니다.</p>';
   showDialog('commentsDialog');
   $('#commentsDialog').focus({ preventScroll:true });
+  void hydratePhotos($('#commentsList'));
   await markCommentsRead(pinId);
 }
 async function markCommentsRead(pinId) {
@@ -379,19 +457,40 @@ async function markCommentsRead(pinId) {
   if (!error) await loadPins();
 }
 async function addComment(event) {
-  event.preventDefault(); const body = $('#commentInput').value.trim(); if (!body || !state.commentPin) return;
-  const { error } = await sb.from('pin_comments').insert({ pin_id:state.commentPin, author_id:state.user.id, body });
+  event.preventDefault(); const photos = state.pendingCommentPhotos; const body = $('#commentInput').value.trim() || (photos.length ? '사진을 첨부했습니다.' : ''); if (!body || !state.commentPin) return;
+  const { data, error } = await sb.from('pin_comments').insert({ pin_id:state.commentPin, author_id:state.user.id, body }).select().single();
   if (error) return toast('댓글 기능을 사용하려면 comments-migration.sql을 먼저 실행하세요.');
-  $('#commentInput').value = ''; await loadPins(); await openComments(state.commentPin);
+  try { if (photos.length) await uploadCommentPhotos(data.id, photos); }
+  catch (uploadError) { toast(`댓글은 등록됐지만 사진 업로드에 실패했습니다: ${uploadError.message}`); }
+  photos.forEach(photo => URL.revokeObjectURL(photo.url)); state.pendingCommentPhotos = []; $('#commentInput').value = ''; $('#commentPhotoInput').value = ''; $('#commentPhotoPreview').innerHTML = ''; await loadPins(); await loadSpacePhotos(); renderPhotoGallery(); await openComments(state.commentPin);
 }
 async function loadNotifications() {
   const { data, error } = await sb.from('notifications').select('*').eq('user_id', state.user.id).order('created_at', { ascending:false }).limit(30);
   if (error) return;
   state.notifications = data || []; const unread = state.notifications.filter(item => !item.read_at).length; $('#notificationCount').textContent = unread || ''; $('#notificationCount').classList.toggle('hidden', !unread);
+  if ($('#notificationsDialog').open) renderNotifications();
+}
+function renderNotifications() {
+  const list = $('#notificationsList');
+  list.innerHTML = state.notifications.map(item => `<article class="notification-item"><div><strong>${escapeHtml(item.body)}</strong><small>${timeText(item.created_at)}</small></div><button type="button" class="notification-delete" data-delete-notification="${item.id}" aria-label="알림 삭제">×</button></article>`).join('') || '<p class="label">새 알림이 없습니다.</p>';
+  $('#clearNotificationsButton').classList.toggle('hidden', !state.notifications.length);
+  list.querySelectorAll('[data-delete-notification]').forEach(button => button.addEventListener('click', () => deleteNotification(button.dataset.deleteNotification)));
+}
+async function deleteNotification(notificationId) {
+  const { error } = await sb.from('notifications').delete().eq('id', notificationId).eq('user_id', state.user.id);
+  if (error) return toast(`알림 삭제에 실패했습니다: ${error.message}`);
+  state.notifications = state.notifications.filter(item => item.id !== notificationId); renderNotifications(); await loadNotifications();
+}
+async function clearNotifications() {
+  if (!state.notifications.length || !confirm('알림을 모두 삭제할까요?')) return;
+  const { error } = await sb.from('notifications').delete().eq('user_id', state.user.id);
+  if (error) return toast(`알림 전체 삭제에 실패했습니다: ${error.message}`);
+  state.notifications = []; renderNotifications(); await loadNotifications();
 }
 async function openNotifications() {
-  $('#notificationsList').innerHTML = state.notifications.map(item => `<article class="notification-item"><strong>${escapeHtml(item.body)}</strong><small>${timeText(item.created_at)}</small></article>`).join('') || '<p class="label">새 알림이 없습니다.</p>';
+  renderNotifications();
   showDialog('notificationsDialog');
+  requestAnimationFrame(() => { $('#notificationsDialog').scrollTop = 0; });
   if (!notificationHistoryOpen) { history.pushState({ pinTogetherModal:'notifications' }, ''); notificationHistoryOpen = true; }
   const unreadIds = state.notifications.filter(item => !item.read_at).map(item => item.id);
   if (unreadIds.length) { await sb.from('notifications').update({ read_at:new Date().toISOString() }).in('id', unreadIds); await loadNotifications(); }
@@ -453,7 +552,7 @@ async function setRecoveredPassword(event) {
 async function searchPlace(event) { event.preventDefault(); const query = $('#placeSearch').value.trim(); if (!query) return; $('#placeResults').innerHTML = '<button class="result">검색 중…</button>'; try { const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=ko&q=${encodeURIComponent(query)}`); const results = await response.json(); $('#placeResults').innerHTML = results.map((item,index) => `<button class="result" data-result="${index}">${escapeHtml(item.display_name.split(',').slice(0,2).join(','))}<small>${escapeHtml(item.display_name)}</small></button>`).join('') || '<button class="result">검색 결과가 없습니다.</button>'; document.querySelectorAll('[data-result]').forEach(button => button.addEventListener('click', () => { const item = results[button.dataset.result]; map.flyTo([item.lat,item.lon], 15); $('#placeResults').innerHTML = ''; })); } catch { $('#placeResults').innerHTML = '<button class="result">검색에 실패했습니다.</button>'; } }
 function subscribe() { state.channel?.unsubscribe(); state.channel = sb.channel(`space-${state.active}`).on('postgres_changes', { event:'*', schema:'public', table:'pins' }, () => void loadPins()).on('postgres_changes', { event:'*', schema:'public', table:'pin_comments' }, () => void loadPins()).on('postgres_changes', { event:'*', schema:'public', table:'messages', filter: state.active === 'all' ? undefined : `space_id=eq.${state.active}` }, () => { void loadMessages(); void loadUnreadCount(); }).on('postgres_changes', { event:'*', schema:'public', table:'message_reads' }, () => { void loadMessages(); void loadUnreadCount(); }).on('postgres_changes', { event:'*', schema:'public', table:'space_routes', filter: state.active === 'all' ? undefined : `space_id=eq.${state.active}` }, () => { void loadPins(); }).on('postgres_changes', { event:'*', schema:'public', table:'route_stops' }, () => { void loadPins(); }).on('postgres_changes', { event:'*', schema:'public', table:'notifications', filter:`user_id=eq.${state.user.id}` }, event => { if (event.eventType === 'INSERT' && event.new?.body) toast(event.new.body); void loadNotifications(); }).subscribe(); }
 function startSafetySync() { clearInterval(safetySyncTimer); safetySyncTimer = setInterval(() => { if (document.hidden || !state.user) return; void loadPins().catch(() => {}); void loadNotifications().catch(() => {}); if (state.active !== 'all') { void loadMessages().catch(() => {}); void loadUnreadCount().catch(() => {}); } }, 5000); }
-async function refresh() { await loadSpaces(); await loadPins(); await loadMessages(); await loadUnreadCount(); await loadNotifications(); connectLocationPresence(); subscribe(); startSafetySync(); $('#spaceSelect').value = state.active; $('#deleteSpaceButton').classList.toggle('hidden', state.active === 'all' || currentRole() !== 'owner'); }
+async function refresh() { await loadSpaces(); await loadPins(); await loadMessages(); await loadUnreadCount(); await loadNotifications(); await loadSpacePhotos(); renderPhotoGallery(); connectLocationPresence(); subscribe(); startSafetySync(); $('#spaceSelect').value = state.active; $('#deleteSpaceButton').classList.toggle('hidden', state.active === 'all' || currentRole() !== 'owner'); }
 async function startApp() {
   // Leaflet은 숨겨진 요소에서 초기화하면 지도 크기를 0으로 계산할 수 있습니다.
   show('appView');
@@ -481,21 +580,25 @@ function scrollChatToBottom(smooth=false) { const messages = $('#messages'); if 
 function bindUi() {
   history.pushState({ pinTogetherExitGuard:true }, '');
   document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => $(`#${button.dataset.close}`).close()));
+  $('#commentsDialog').addEventListener('click', event => { if (event.target === event.currentTarget) $('#commentsDialog').close(); });
   $('#notificationsDialog').addEventListener('click', event => { if (event.target === event.currentTarget) $('#notificationsDialog').close(); });
   $('#notificationsDialog').addEventListener('close', () => { if (notificationHistoryOpen && !closingNotificationFromBack) { notificationHistoryOpen = false; history.back(); } closingNotificationFromBack = false; });
   window.addEventListener('popstate', event => {
     if (exitConfirmed) return;
+    if ($('#photoViewerDialog').open) { closingPhotoViewerFromBack = true; $('#photoViewerDialog').close(); photoViewerHistoryOpen = false; return; }
     if (mobilePanelHistoryOpen) { closeMobilePanel(true); return; }
     if ($('#notificationsDialog').open) { closingNotificationFromBack = true; $('#notificationsDialog').close(); notificationHistoryOpen = false; return; }
     if (event.state?.pinTogetherExitGuard) return;
     if (confirm('페이지를 나가시겠어요?')) { exitConfirmed = true; history.back(); }
     else history.forward();
   });
+  window.addEventListener('beforeunload', event => { if (!exitConfirmed) { event.preventDefault(); event.returnValue = ''; } });
   $('#sessionNicknameDialog').addEventListener('cancel', event => event.preventDefault());
-  document.querySelectorAll('[data-auth]').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('[data-auth]').forEach(item => item.classList.toggle('active', item === button)); const signup = button.dataset.auth === 'signup'; $('#nicknameField').classList.toggle('hidden', !signup); $('#nickname').required = signup; $('#authSubmit').textContent = signup ? '회원가입' : '로그인'; $('#authHelp').textContent = signup ? '회원가입에는 실제 이메일 주소를 입력해 주세요.' : '가입한 이메일 또는 마스터 계정 Master1로 로그인하세요.'; }));
-  $('#authForm').addEventListener('submit', async event => { event.preventDefault(); const signup = $('[data-auth].active').dataset.auth === 'signup'; const loginId = $('#email').value.trim(); const masterEmail = loginId.toLowerCase() === 'master1' ? masterAccounts.Master1 : null; if (signup && masterEmail) return toast('Master1은 회원가입할 수 없는 마스터 계정입니다.'); if (signup && !loginId.includes('@')) return toast('회원가입에는 이메일 주소를 입력해 주세요.'); const email = masterEmail || loginId, password = $('#password').value; if (signup && password.length < 8) return toast('회원가입 비밀번호는 8자 이상이어야 합니다.'); const result = signup ? await sb.auth.signUp({ email, password, options:{ data:{ nickname:$('#nickname').value.trim() }, emailRedirectTo:`${location.origin}${location.pathname}` } }) : await sb.auth.signInWithPassword({ email, password }); if (result.error) return toast(result.error.message); if (signup && !result.data.session) return toast('가입 확인 메일을 보냈습니다. 이메일 인증 후 로그인하세요.'); });
+  document.querySelectorAll('[data-auth]').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('[data-auth]').forEach(item => item.classList.toggle('active', item === button)); const signup = button.dataset.auth === 'signup'; $('#nicknameField').classList.toggle('hidden', !signup); $('#nickname').required = signup; $('#authSubmit').textContent = signup ? '회원가입' : '로그인'; $('#authHelp').textContent = signup ? '회원가입에는 실제 이메일 주소를 입력해 주세요.' : '가입한 이메일로 로그인하세요.'; }));
+  $('#authForm').addEventListener('submit', async event => { event.preventDefault(); const signup = $('[data-auth].active').dataset.auth === 'signup'; const loginId = $('#email').value.trim(); const masterEmail = Object.entries(masterAccounts).find(([name]) => name.toLowerCase() === loginId.toLowerCase())?.[1] || null; if (signup && masterEmail) return toast('마스터 계정은 회원가입할 수 없습니다.'); if (signup && !loginId.includes('@')) return toast('회원가입에는 이메일 주소를 입력해 주세요.'); const email = masterEmail || loginId, password = $('#password').value; if (signup && password.length < 8) return toast('회원가입 비밀번호는 8자 이상이어야 합니다.'); const result = signup ? await sb.auth.signUp({ email, password, options:{ data:{ nickname:$('#nickname').value.trim() }, emailRedirectTo:`${location.origin}${location.pathname}` } }) : await sb.auth.signInWithPassword({ email, password }); if (result.error) return toast(result.error.message); if (signup && !result.data.session) return toast('가입 확인 메일을 보냈습니다. 이메일 인증 후 로그인하세요.'); });
   $('#spaceSelect').addEventListener('change', async event => { if (locationWatchId !== null) stopLocationShare(true); state.active = event.target.value; state.selected = []; state.route = []; state.draftRoute = []; state.activeRouteId = null; updateMeasure(); await refresh(); });
-  $('#newSpaceButton').addEventListener('click', () => showDialog('spaceDialog')); $('#joinSpaceButton').addEventListener('click', () => showDialog('joinDialog')); $('#inviteButton').addEventListener('click', makeInvite); $('#deleteSpaceButton').addEventListener('click', deleteSpace); $('#notificationButton').addEventListener('click', openNotifications); $('#mobilePanelButton').addEventListener('click', toggleMobilePanel); $('#spaceForm').addEventListener('submit', createSpace); $('#joinForm').addEventListener('submit', joinSpace); $('#pinForm').addEventListener('submit', createPin); $('#messageForm').addEventListener('submit', sendMessage); $('#messageInput').addEventListener('focus', () => setTimeout(() => scrollChatToBottom(true), 180)); $('#commentForm').addEventListener('submit', addComment); $('#profileButton').addEventListener('click', () => { $('#profileNickname').value = state.profile.nickname; $('#profilePassword').value = ''; $('#profilePasswordConfirm').value = ''; showDialog('profileDialog'); }); $('#profileForm').addEventListener('submit', saveProfile); $('#forgotPasswordButton').addEventListener('click', () => { $('#forgotPasswordEmail').value = $('#email').value.trim(); showDialog('forgotPasswordDialog'); }); $('#forgotPasswordForm').addEventListener('submit', requestPasswordReset); $('#newPasswordForm').addEventListener('submit', setRecoveredPassword); $('#sessionNicknameForm').addEventListener('submit', saveSessionNickname); $('#signOutButton').addEventListener('click', () => sb.auth.signOut());
+  $('#newSpaceButton').addEventListener('click', () => showDialog('spaceDialog')); $('#joinSpaceButton').addEventListener('click', () => showDialog('joinDialog')); $('#inviteButton').addEventListener('click', makeInvite); $('#deleteSpaceButton').addEventListener('click', deleteSpace); $('#notificationButton').addEventListener('click', openNotifications); $('#mobilePanelButton').addEventListener('click', toggleMobilePanel); $('#spaceForm').addEventListener('submit', createSpace); $('#pinForm').addEventListener('submit', createPin); $('#messageForm').addEventListener('submit', sendMessage); $('#messageInput').addEventListener('focus', () => setTimeout(() => scrollChatToBottom(true), 180)); $('#commentForm').addEventListener('submit', addComment); $('#commentPhotoInput').addEventListener('change', event => { state.pendingCommentPhotos.forEach(photo => URL.revokeObjectURL(photo.url)); const files = [...event.target.files]; state.pendingCommentPhotos = files.slice(0,5).map(file => ({ file, tags:'', url:URL.createObjectURL(file) })); if (files.length > 5) toast('사진은 최대 5장까지 선택할 수 있습니다.'); renderCommentPhotoPreview(); }); $('#photoSearch').addEventListener('input', renderPhotoGallery); $('#photoViewerDialog').addEventListener('close', () => { $('#photoViewerImage').removeAttribute('src'); $('#photoViewerStatus').textContent = ''; if (photoViewerHistoryOpen && !closingPhotoViewerFromBack) { photoViewerHistoryOpen = false; history.back(); } closingPhotoViewerFromBack = false; }); bindPhotoViewer(); $('#profileButton').addEventListener('click', () => { $('#profileNickname').value = state.profile.nickname; $('#profilePassword').value = ''; $('#profilePasswordConfirm').value = ''; showDialog('profileDialog'); requestAnimationFrame(() => $('#profileDialog').focus({ preventScroll:true })); }); $('#profileForm').addEventListener('submit', saveProfile); $('#forgotPasswordButton').addEventListener('click', () => { $('#forgotPasswordEmail').value = $('#email').value.trim(); showDialog('forgotPasswordDialog'); }); $('#forgotPasswordForm').addEventListener('submit', requestPasswordReset); $('#newPasswordForm').addEventListener('submit', setRecoveredPassword); $('#signOutButton').addEventListener('click', signOut);
+  $('#joinForm').addEventListener('submit', joinSpace); $('#sessionNicknameForm').addEventListener('submit', saveSessionNickname); $('#profileSignOutButton').addEventListener('click', signOut); $('#clearNotificationsButton').addEventListener('click', clearNotifications);
   $('#addPinButton').addEventListener('click', () => { if (state.active === 'all') return toast('핀을 추가할 여행 공간을 선택하세요.'); state.pending = 'add'; $('#addPinButton').classList.add('active'); toast('지도에서 핀을 놓을 위치를 선택하세요.'); });
   $('#routeButton').addEventListener('click', () => {
     if (state.routeMode) {
@@ -516,7 +619,7 @@ function bindUi() {
   }); $('#closeMeasure').addEventListener('click', () => $('#measureCard').classList.add('hidden')); $('#pinSearch').addEventListener('input', renderPins); $('#tagFilter').addEventListener('change', renderPins); $('#placeSearchForm').addEventListener('submit', searchPlace);
   $('#locateButton').addEventListener('click', () => { if (!navigator.geolocation) return toast('이 브라우저는 위치 기능을 지원하지 않습니다.'); toast('현재 위치를 찾는 중입니다.'); navigator.geolocation.getCurrentPosition(pos => { const point = [pos.coords.latitude,pos.coords.longitude]; map.flyTo(point,16,{animate:true,duration:.6}); L.circleMarker(point,{radius:9,color:'#fff',weight:3,fillColor:colors.blue,fillOpacity:1}).addTo(map); toast('현재 위치로 이동했습니다.'); }, () => toast('현재 위치 권한을 허용해 주세요.'), { enableHighAccuracy:true, maximumAge:15000, timeout:15000 }); });
   $('#locationShareButton').addEventListener('click', startLocationShare);
-  document.querySelectorAll('[data-panel]').forEach(button => button.addEventListener('click', async () => { document.querySelectorAll('[data-panel]').forEach(b => b.classList.toggle('active', b === button)); const panel = button.dataset.panel; $('#pinsPanel').classList.toggle('hidden',panel !== 'pins'); $('#routesPanel').classList.toggle('hidden',panel !== 'routes'); $('#chatPanel').classList.toggle('hidden',panel !== 'chat'); if (panel === 'chat') { await loadMessages(); scrollChatToBottom(); } if (panel === 'routes') renderRoutes(); }));
+  document.querySelectorAll('[data-panel]').forEach(button => button.addEventListener('click', async () => { document.querySelectorAll('[data-panel]').forEach(b => b.classList.toggle('active', b === button)); const panel = button.dataset.panel; $('#pinsPanel').classList.toggle('hidden',panel !== 'pins'); $('#routesPanel').classList.toggle('hidden',panel !== 'routes'); $('#chatPanel').classList.toggle('hidden',panel !== 'chat'); $('#photosPanel').classList.toggle('hidden',panel !== 'photos'); if (panel === 'chat') { await loadMessages(); scrollChatToBottom(); } if (panel === 'routes') renderRoutes(); if (panel === 'photos') { await loadSpacePhotos(); renderPhotoGallery(); } }));
   window.visualViewport?.addEventListener('resize', () => { if (!$('#chatPanel').classList.contains('hidden')) setTimeout(() => scrollChatToBottom(), 120); });
 }
 
