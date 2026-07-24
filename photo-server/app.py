@@ -34,7 +34,7 @@ ALLOWED_CONTENT_TYPES = {
     "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif",
     "image/heic": ".jpg", "image/heif": ".jpg",
 }
-ALLOWED_SOURCE_TYPES = {"comment", "pin", "route", "message"}
+ALLOWED_SOURCE_TYPES = {"comment", "pin_background"}
 GPS_INFO = next(key for key, value in ExifTags.TAGS.items() if value == "GPSInfo")
 
 
@@ -151,6 +151,40 @@ async def require_space_member(authorization: str | None, space_id: str) -> tupl
     return user_id, rows[0]["role"]
 
 
+async def require_valid_comment_source(
+    authorization: str | None, space_id: str, comment_id: str, user_id: str, role: str,
+) -> None:
+    """Allow photos only on a real comment in the requested space."""
+    headers = {"apikey": SUPABASE_KEY, "Authorization": authorization or ""}
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{SUPABASE_REST_URL}/pin_comments", headers=headers, params={
+            "select": "author_id,pins!inner(space_id)",
+            "id": f"eq.{comment_id}",
+            "pins.space_id": f"eq.{space_id}",
+        })
+    rows = response.json() if response.status_code == 200 else []
+    if not rows:
+        raise HTTPException(404, "해당 여행 공간의 댓글을 찾을 수 없습니다.")
+    if role != "owner" and rows[0]["author_id"] != user_id:
+        raise HTTPException(403, "본인이 작성한 댓글에만 사진을 추가할 수 있습니다.")
+
+
+async def require_valid_pin_background_source(
+    authorization: str | None, space_id: str, pin_id: str, user_id: str,
+) -> None:
+    """Allow a background image only on the caller's real pin in this space."""
+    headers = {"apikey": SUPABASE_KEY, "Authorization": authorization or ""}
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{SUPABASE_REST_URL}/pins", headers=headers, params={
+            "select": "author_id", "id": f"eq.{pin_id}", "space_id": f"eq.{space_id}",
+        })
+    rows = response.json() if response.status_code == 200 else []
+    if not rows:
+        raise HTTPException(404, "Pin not found in this space.")
+    if rows[0]["author_id"] != user_id:
+        raise HTTPException(403, "Only the pin author can set its background image.")
+
+
 def record_to_public(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "id": row["id"], "source_type": row["source_type"], "source_id": row["source_id"],
@@ -174,9 +208,13 @@ async def upload_photo(
     space_id: str = Form(...), source_type: str = Form(...), source_id: str = Form(...), tags: str = Form("[]"),
     file: UploadFile = File(...), authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_id, _ = await require_space_member(authorization, space_id)
+    user_id, role = await require_space_member(authorization, space_id)
     if source_type not in ALLOWED_SOURCE_TYPES or not source_id:
         raise HTTPException(400, "사진 연결 정보가 올바르지 않습니다.")
+    if source_type == "comment":
+        await require_valid_comment_source(authorization, space_id, source_id, user_id, role)
+    else:
+        await require_valid_pin_background_source(authorization, space_id, source_id, user_id)
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(415, "JPG, PNG, WEBP, GIF, HEIC 사진만 올릴 수 있습니다.")
     content = await file.read(MAX_FILE_SIZE + 1)

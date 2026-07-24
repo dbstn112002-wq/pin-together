@@ -1,3 +1,6 @@
+-- LEGACY/REDUNDANT — do not run for a new setup.
+-- Its messages/message_reads Realtime registration is already included in realtime-reliability-migration.sql.
+-- Kept only as a historical record.
 -- Run once after collaboration-migration.sql.
 -- Ensures chat and read receipts are delivered to every open client immediately.
 do $$ begin

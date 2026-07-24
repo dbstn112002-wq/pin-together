@@ -1,6 +1,10 @@
 -- 핀투게더 고급 기능 마이그레이션
 -- 기존 schema.sql 실행 후, Supabase SQL Editor에서 이 파일 전체를 한 번 실행합니다.
 
+-- LEGACY — DO NOT RUN. This file contains the previous schema.
+-- Use collaboration-migration.sql and the order in supabase/README.md instead.
+-- Its space_routes and route_stops definitions conflict with the current schema.
+
 alter table public.spaces add constraint spaces_owner_name_unique unique (owner_id, name);
 alter table public.spaces enable row level security;
 create policy "owners delete spaces" on public.spaces for delete to authenticated using (public.is_space_owner(id));

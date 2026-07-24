@@ -1,6 +1,9 @@
 -- 핀투게더: 핀 댓글 기능만 추가합니다.
 -- 기존 schema.sql 실행 후, Supabase SQL Editor에서 이 파일 전체를 한 번 실행하세요.
 
+-- LEGACY — DO NOT RUN. pin_comments and its policies were consolidated into collaboration-migration.sql.
+-- Use collaboration-migration.sql and the order in supabase/README.md instead.
+
 create table if not exists public.pin_comments (
   id uuid primary key default gen_random_uuid(),
   pin_id uuid not null references public.pins(id) on delete cascade,
