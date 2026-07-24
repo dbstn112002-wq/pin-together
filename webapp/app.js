@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PHOTO_SERVER_URL } from './config.js?v=20260724-master-accounts';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PHOTO_SERVER_URL } from './config.js?v=20260724-persistent-nickname';
 
 const configured = !SUPABASE_URL.startsWith('YOUR_') && !SUPABASE_PUBLISHABLE_KEY.startsWith('YOUR_');
 const masterAccounts = Object.fromEntries([1,2,3,4,5].map(number => [`Master${number}`, `master${number}@example.com`]));
@@ -34,6 +34,7 @@ function initials(name='나') { return name.trim().slice(0,1); }
 function isMasterUser() { return Object.values(masterAccounts).includes(state.user?.email); }
 function sessionNicknameKey() { return `pin-together-session-nickname:${state.user?.id || 'guest'}`; }
 function activeNickname() { return state.sessionNickname || state.profile?.nickname || '참여자'; }
+function needsNicknameSetup() { return isMasterUser() && (!state.profile?.nickname || state.profile.nickname === '여행자' || /^Master[1-5]$/i.test(state.profile.nickname)); }
 function spaceName() { return state.active === 'all' ? '전체 지도' : state.spaces.find(s => s.space_id === state.active)?.spaces?.name || '지도'; }
 function pinIcon(pin) {
   const routeIndex = (state.routeMode ? state.draftRoute : state.route).findIndex(item => item.id === pin.id);
@@ -523,12 +524,15 @@ async function saveProfile(event) {
 async function saveSessionNickname(event) {
   event.preventDefault();
   const nickname = $('#sessionNickname').value.trim();
-  sessionStorage.setItem(sessionNicknameKey(), nickname);
-  state.sessionNickname = nickname;
+  const { error } = await sb.from('profiles').update({ nickname }).eq('id', state.user.id);
+  if (error) return toast(error.message);
+  sessionStorage.removeItem(sessionNicknameKey());
+  state.sessionNickname = '';
+  state.profile.nickname = nickname;
   $('#profileButton').textContent = initials(nickname);
   nicknamePromptedForSession = true;
   closeDialogs();
-  toast('닉네임을 설정했습니다.');
+  toast('닉네임을 저장했습니다. 다음 로그인에도 유지됩니다.');
 }
 async function requestPasswordReset(event) {
   event.preventDefault();
@@ -559,11 +563,17 @@ async function startApp() {
   if (!map) initMap();
   else map.invalidateSize();
   await loadProfile();
-  state.sessionNickname = isMasterUser() ? (sessionStorage.getItem(sessionNicknameKey()) || '') : '';
+  const savedSessionNickname = isMasterUser() ? (sessionStorage.getItem(sessionNicknameKey()) || '') : '';
+  if (savedSessionNickname && state.profile.nickname !== savedSessionNickname) {
+    const { error } = await sb.from('profiles').update({ nickname:savedSessionNickname }).eq('id', state.user.id);
+    if (!error) state.profile.nickname = savedSessionNickname;
+    sessionStorage.removeItem(sessionNicknameKey());
+  }
+  state.sessionNickname = '';
   $('#profileButton').textContent = initials(activeNickname());
   await refresh();
   const invite = new URLSearchParams(location.search).get('invite');
-  if (isMasterUser() && !state.sessionNickname && !nicknamePromptedForSession && !$('#sessionNicknameDialog').open && !invite) {
+  if (needsNicknameSetup() && !nicknamePromptedForSession && !$('#sessionNicknameDialog').open && !invite) {
     $('#sessionNickname').value = '';
     showDialog('sessionNicknameDialog');
   }
