@@ -75,5 +75,12 @@ node server.mjs
 
 ## 작업 공간 주의사항
 
+## 2026-07-24 세션 저장 메모
+
+- `webapp/app.js`, `webapp/app.css`, `webapp/index.html`에 모바일 핀 목록 닫기, 댓글 입력 시 모바일 키보드 자동 열림 방지, 즐겨찾기 갱신 안내, 지도 이탈 확인, 댓글/읽지 않은 댓글 핀 표시를 추가했다.
+- Cloudflare Workers `dry-butterfly-8a6f`에는 위 웹 변경 사항이 배포됐다.
+- 사용자별 읽지 않은 댓글 표시를 실제로 사용하려면 Supabase SQL Editor에서 `supabase/pin-comment-reads-migration.sql`을 실행해야 한다.
+- GitHub 원격 저장소는 `https://github.com/dbstn112002-wq/pin-together`이다. GitHub CLI 토큰이 만료되어 이 세션에서는 푸시하지 못했다. 로컬 커밋만 생성해 두며, 다음 세션에서 `gh auth login -h github.com` 후 푸시하면 된다.
+
 - 루트에 추적되지 않은 개인 메모 텍스트 파일과 `해결1.png`가 있다. 사용자 파일이므로 커밋·삭제하지 않는다.
 - `webapp/config.js`에는 publishable key만 있어야 하며, service role/secret key를 저장소나 프런트엔드에 넣지 않는다.
