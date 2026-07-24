@@ -58,3 +58,109 @@
 .comment-photos{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.photo-thumb{display:block;overflow:hidden;width:64px;height:64px;padding:0;border:0;border-radius:7px;background:#e8edf1}.photo-thumb img{width:100%;height:100%;object-fit:cover}.photo-thumb.unavailable{display:none}.comment-photo-picker{display:grid;place-items:center;width:32px;height:32px;margin:0;border:1px solid var(--line);border-radius:7px;background:#edf1f4;color:var(--ink);font-size:18px;cursor:pointer}.comment-photo-picker input{display:none!important}#commentForm{flex-wrap:wrap}#commentForm #commentInput{flex:1;min-width:120px}.comment-photo-preview{display:flex;flex-basis:100%;gap:4px;overflow:hidden;color:var(--muted);font-size:10px}.comment-photo-preview span{max-width:95px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.gallery-card{min-width:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}.gallery-card .photo-thumb{width:100%;height:auto;aspect-ratio:1;border-radius:0}.gallery-meta{display:flex;flex-wrap:wrap;gap:3px;padding:5px;font-size:9px}.gallery-meta span{width:100%;overflow:hidden;color:var(--muted);text-overflow:ellipsis;white-space:nowrap}.gallery-meta button{border:0;border-radius:4px;background:#edf1f4;padding:3px 4px;color:var(--ink);font-size:9px}.photo-viewer-dialog{width:min(900px,calc(100vw - 16px));max-width:none;height:min(90dvh,820px);padding:0;background:#101820}.photo-viewer-dialog::backdrop{background:#09111bdd}.photo-viewer-stage{display:grid;width:100%;height:100%;place-items:center;overflow:hidden}.photo-viewer-stage img{max-width:100%;max-height:100%;object-fit:contain;touch-action:none;user-select:none;transform-origin:center}.photo-viewer-close{position:absolute;z-index:1;top:9px;right:9px;width:34px;height:34px;border:0;border-radius:50%;background:#ffffffdd;color:#1f2d3d;font-size:24px}.photo-viewer-dialog p{position:absolute;z-index:1;left:50%;top:50%;margin:0;transform:translate(-50%,-50%);color:#fff}.photo-viewer-dialog p:empty{display:none}@media(max-width:760px){.photo-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.photo-thumb{width:58px;height:58px}.photo-viewer-dialog{width:100vw;height:100dvh;max-height:none;border-radius:0}.comment-photos .photo-thumb{width:54px;height:54px}}
 .pending-photo{position:relative;display:grid;grid-template-columns:38px 1fr 20px;align-items:center;gap:4px;min-width:0;padding:3px;border:1px solid var(--line);border-radius:6px;background:#fff}.pending-photo img{width:38px;height:38px;border-radius:4px;object-fit:cover}.pending-photo input{min-width:0!important;margin:0!important;padding:5px!important;font-size:10px!important}.pending-photo button{width:20px;height:20px;padding:0;border:0;border-radius:50%;background:#edf1f4;font-size:14px}.photo-origin{width:100%;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap;color:#52657a!important;font-weight:700}
 .photo-viewer-stage img{display:block;width:100%;height:100%;max-width:none;max-height:none;object-fit:contain}.gallery-card .photo-thumb{height:130px;aspect-ratio:auto;background:#f5f7f8}.gallery-card .photo-thumb img{object-fit:contain}.notification-item{display:flex;align-items:center;justify-content:space-between;gap:10px}.notification-item>div{min-width:0}.notification-delete{width:24px;height:24px;flex:none;border:0;border-radius:50%;background:#edf1f4;color:#718094;font-size:16px;line-height:1}.notification-delete:hover{background:#fff0ed;color:#c45046}.member-item{display:flex;align-items:center;gap:9px;padding:9px 2px;border-bottom:1px solid var(--line)}.member-avatar{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#edf1f4;color:#536477;font-size:12px;font-weight:800}.member-item strong,.member-item small{display:block}.member-item strong{font-size:12px}.member-item small{margin-top:2px;color:var(--muted);font-size:10px}@media(max-width:760px){.header-actions #inviteButton{display:block;padding:5px 6px;font-size:11px}.tabs{gap:10px;overflow-x:auto;scrollbar-width:none}.tabs button{flex:none}.member-item{padding:8px 2px}}
+.notification-target{cursor:pointer}.notification-target:hover{background:#f6f8fa}.notification-target:focus-visible{outline:2px solid var(--coral);outline-offset:2px}
+
+/* iPhone Safari: controls must be available before JavaScript finishes loading. */
+@media screen and (max-width:430px){
+  .app{height:100dvh;min-height:100dvh;overflow:hidden}
+  .app header{height:calc(50px + env(safe-area-inset-top));padding-top:env(safe-area-inset-top);padding-left:max(7px,env(safe-area-inset-left));padding-right:max(7px,env(safe-area-inset-right));gap:4px}
+  .map-wrap{height:calc(100dvh - 50px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
+  .app aside{top:calc(50px + env(safe-area-inset-top));bottom:env(safe-area-inset-bottom);height:auto}
+  .mobile-panel-button,.header-actions button{display:inline-flex!important;visibility:visible!important;opacity:1!important;align-items:center;justify-content:center}
+  .mobile-panel-button{padding:7px 5px!important;font-size:10px!important;white-space:nowrap}
+  .brand{max-width:58px;overflow:hidden;font-size:13px!important;white-space:nowrap}
+  header select{max-width:88px!important;min-width:0;padding:6px!important;font-size:10px!important}
+  .header-actions{gap:3px}
+  .header-actions #notificationButton{font-size:15px!important}
+  .header-actions #inviteButton{padding:5px 6px!important;font-size:10px!important}
+  .header-actions .avatar{width:28px;height:28px}
+  .map-actions{display:flex!important;visibility:visible!important;opacity:1!important;left:auto!important;right:max(9px,env(safe-area-inset-right))!important;bottom:calc(env(safe-area-inset-bottom) + 12px)!important;flex-direction:column!important;gap:6px!important;z-index:1201!important}
+  .map-actions button{display:block!important;visibility:visible!important;opacity:1!important;width:auto!important;min-width:42px!important;min-height:38px!important;height:auto!important;padding:7px 9px!important;border:1px solid #d5dde5!important;border-radius:9px!important;background:#fff!important;color:#1f2d3d!important;font-size:11px!important;line-height:1.2!important;box-shadow:0 2px 8px #13243b2b!important;white-space:nowrap!important}
+  .map-actions #addPinButton{background:#ed7668!important;border-color:#ed7668!important;color:#fff!important}
+  .map-actions button::before,.map-actions button::after{content:none!important}
+}
+
+#deleteSpaceButton{line-height:1.05;text-align:center}
+
+/* Do not rely on viewport width after iPhone Safari has focused a field.
+   Safari can temporarily change that width while zooming; this class stays put. */
+html.ios-compact,html.ios-compact body{height:100%;width:100%;overflow:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html.ios-compact .app{display:block!important;height:100svh!important;height:100dvh!important;min-height:0!important;overflow:hidden!important}
+html.ios-compact .app header{position:relative!important;z-index:1300!important;height:calc(50px + env(safe-area-inset-top))!important;padding:env(safe-area-inset-top) max(7px,env(safe-area-inset-right)) 0 max(7px,env(safe-area-inset-left))!important;gap:4px!important;overflow:hidden!important}
+html.ios-compact .mobile-panel-button,html.ios-compact .header-actions button{display:inline-flex!important;visibility:visible!important;opacity:1!important;align-items:center;justify-content:center}
+html.ios-compact .mobile-panel-button{padding:7px 5px!important;font-size:10px!important}
+html.ios-compact .brand{max-width:58px!important;overflow:hidden!important;font-size:13px!important}
+html.ios-compact header select{max-width:88px!important;min-width:0!important;padding:6px!important;font-size:10px!important}
+html.ios-compact .header-actions{gap:3px!important}html.ios-compact .header-actions #notificationButton{font-size:15px!important}html.ios-compact .header-actions #inviteButton{padding:5px 6px!important;font-size:10px!important}html.ios-compact .header-actions .avatar{width:28px!important;height:28px!important}
+html.ios-compact .app aside{position:fixed!important;z-index:1400!important;top:calc(50px + env(safe-area-inset-top))!important;bottom:0!important;height:calc(100dvh - 50px - env(safe-area-inset-top))!important;padding:12px max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))!important;overflow:hidden!important}
+html.ios-compact .panel{overflow-y:auto!important;-webkit-overflow-scrolling:touch!important}html.ios-compact .map-wrap{height:calc(100dvh - 50px - env(safe-area-inset-top))!important;min-height:0!important}
+html.ios-compact .map-top{top:8px!important;left:max(8px,env(safe-area-inset-left))!important;width:calc(100% - max(16px,env(safe-area-inset-left) + env(safe-area-inset-right)))!important}
+html.ios-compact .map-actions{display:flex!important;visibility:visible!important;opacity:1!important;right:max(9px,env(safe-area-inset-right))!important;left:auto!important;bottom:calc(env(safe-area-inset-bottom) + 12px)!important;flex-direction:column!important;z-index:1201!important}
+html.ios-compact .map-actions button{display:block!important;visibility:visible!important;opacity:1!important;width:auto!important;min-width:42px!important;min-height:38px!important;height:auto!important;padding:7px 8px!important;background:#fff!important;color:#1f2d3d!important;font-size:10px!important;line-height:1.2!important;white-space:nowrap!important}
+html.ios-compact .map-actions #addPinButton{background:#ed7668!important;color:#fff!important}
+html.ios-compact dialog{width:calc(100vw - 24px)!important;max-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px)!important;overflow-y:auto!important}html.ios-compact input,html.ios-compact textarea,html.ios-compact select{font-size:16px!important}
+html.ios-compact #toast{z-index:2000!important;bottom:calc(env(safe-area-inset-bottom) + 14px)!important;max-width:calc(100vw - 28px)!important}
+
+#chatButton{position:relative;min-width:30px;min-height:30px;font-size:16px}.header-actions #chatButton .badge{position:absolute;right:-6px;top:-6px}.chat-dialog{width:min(390px,calc(100vw - 28px));height:min(560px,calc(100dvh - 48px));max-width:none;padding:0;overflow:hidden;background:#fff}.chat-dialog-inner{display:grid;height:100%;grid-template-rows:auto 1fr auto}.chat-dialog header{display:flex;align-items:center;justify-content:space-between;padding:13px 15px;border-bottom:1px solid var(--line);background:#fff}.chat-dialog header strong{font-size:15px}.chat-dialog header button{width:28px;height:28px;border:0;border-radius:50%;background:#edf1f4;color:var(--ink);font-size:20px;line-height:1}.chat-dialog #messages{min-height:0;overflow-y:auto;padding:14px 15px;-webkit-overflow-scrolling:touch}.chat-dialog #messageForm{display:flex;gap:6px;margin:0;padding:10px 12px max(10px,env(safe-area-inset-bottom));border-top:1px solid var(--line);background:#fff}.chat-dialog #messageForm input{min-width:0;margin:0}.chat-dialog #messageForm button{width:38px;flex:none;border:0;border-radius:8px;background:var(--coral);color:#fff}.msg{display:flex;flex-direction:column;align-items:flex-start}.msg.mine{align-items:flex-end}.msg .message-meta{order:2;margin:4px 2px 0;color:var(--muted);font-size:10px}.msg .bubble{order:1}.msg.mine .message-meta{text-align:right}.read-count{color:var(--coral);font-size:10px}@media(max-width:430px){.chat-dialog{width:calc(100vw - 20px);height:min(72dvh,570px);margin:auto}.chat-dialog #messageForm input{font-size:16px!important}.chat-dialog #messages{padding:12px}.chat-dialog header{padding:11px 13px}}
+.member-remove{margin-left:auto;border:0;border-radius:6px;background:#fff0ed;color:#c45046;padding:5px 7px;font-size:10px;font-weight:700}
+
+/* Compact map controls on every mobile screen. */
+@media(max-width:760px){
+  .map-actions button{display:grid!important;place-items:center!important;width:40px!important;min-width:40px!important;height:40px!important;min-height:40px!important;padding:0!important;font-size:0!important}
+  .map-actions button::before{content:none!important}.map-actions button::after{display:block!important;font-size:18px!important;font-weight:800!important;line-height:1!important}
+  .map-actions #mapTypeButton::after{content:"\1F5FA"!important}.map-actions #locateButton::after{content:"\25CE"!important}.map-actions #locationShareButton::after{content:"\2316"!important}.map-actions #routeButton::after{content:"\2321"!important}.map-actions #addPinButton::after{content:"+"!important;color:#fff!important}
+}
+
+/* Prevent Safari from automatically inflating text on narrow screens. */
+@media screen and (max-width:430px){
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+  .app{font-size:12px}
+  .tabs button{font-size:11px!important}
+  .space-actions .primary,.space-actions .secondary{padding:7px!important;font-size:11px!important}
+  .search input,.map-top input{font-size:11px!important}
+  .map-top button{font-size:10px!important}
+  .label{font-size:10px!important}
+  .pin-item strong,.pin-open strong{font-size:11px!important}
+  .pin-item small,.pin-open small{font-size:9px!important}
+  .pin-tag{font-size:8px!important}
+  #messages,.comment,.notification-item,.member-item{font-size:11px!important}
+  dialog h2,.comments-dialog h2{font-size:16px!important}
+  dialog label{font-size:11px!important}
+  dialog input,dialog textarea,dialog select{padding:8px!important;font-size:12px!important}
+  .dialog-actions button{padding:7px 9px!important;font-size:11px!important}
+}
+
+/* Single iPhone Safari layout: keep this section last so older mobile rules
+   cannot move controls behind the map or browser chrome. */
+@media screen and (max-width:430px){
+  html{height:100%;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+  body{width:100%;min-height:100%;overflow:hidden;overscroll-behavior:none}
+  .app{display:block;height:100svh;height:100dvh;min-height:0;overflow:hidden}
+  .app header{position:relative;z-index:1300;height:calc(50px + env(safe-area-inset-top));padding:env(safe-area-inset-top) max(7px,env(safe-area-inset-right)) 0 max(7px,env(safe-area-inset-left));overflow:hidden}
+  .app aside{position:fixed;z-index:1400;top:calc(50px + env(safe-area-inset-top));bottom:0;height:calc(100dvh - 50px - env(safe-area-inset-top));padding:12px max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));overflow:hidden;-webkit-overflow-scrolling:touch}
+  .panel{overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  .map-wrap{height:calc(100dvh - 50px - env(safe-area-inset-top));min-height:0}
+  .map-top{top:8px;left:max(8px,env(safe-area-inset-left));width:calc(100% - max(16px,env(safe-area-inset-left) + env(safe-area-inset-right)))}
+  .map-actions{right:max(9px,env(safe-area-inset-right))!important;bottom:calc(env(safe-area-inset-bottom) + 12px)!important;z-index:1201!important}
+  .map-actions button{min-height:38px!important;padding:7px 8px!important;font-size:10px!important}
+  #measureCard{bottom:calc(env(safe-area-inset-bottom) + 12px);max-height:32dvh;overflow:auto}
+  dialog{width:calc(100vw - 24px);max-width:400px;max-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px);margin:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  dialog form,.comments-dialog{padding:16px}
+  /* 16px prevents iOS Safari from zooming the whole page when typing. */
+  input,textarea,select{font-size:16px!important}
+  #toast{z-index:2000;bottom:calc(env(safe-area-inset-bottom) + 14px);max-width:calc(100vw - 28px);text-align:center}
+  .photo-viewer-dialog{width:100vw;max-width:none;height:100dvh;max-height:none}
+}
+
+/* 핀 목록의 제목 왼쪽: 위치 핀과 색상 점을 세로로 함께 표시한다. */
+.pin-item{grid-template-columns:18px 1fr auto;align-items:start}
+.pin-item>.dot{position:relative;margin-top:23px}
+.pin-item>.dot::before{content:"📍";position:absolute;top:-21px;left:-3px;font-size:15px;line-height:1}
+
+/* Keep map controls icon-only even after the iPhone compact-layout overrides. */
+@media(max-width:760px){
+  .map-actions button,.ios-compact .map-actions button{display:grid!important;place-items:center!important;width:40px!important;min-width:40px!important;height:40px!important;min-height:40px!important;padding:0!important;font-size:0!important}
+  .map-actions button::before,.ios-compact .map-actions button::before{content:none!important}
+  .map-actions button::after,.ios-compact .map-actions button::after{display:block!important;font-size:18px!important;font-weight:800!important;line-height:1!important}
+  .map-actions #mapTypeButton::after{content:"🗺"!important}.map-actions #locateButton::after{content:"◎"!important}.map-actions #locationShareButton::after{content:"⌖"!important}.map-actions #routeButton::after{content:"⌇"!important}.map-actions #addPinButton::after{content:"＋"!important;color:#fff!important}
+}

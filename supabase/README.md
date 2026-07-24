@@ -15,6 +15,10 @@ Supabase Dashboard의 **SQL Editor**에서 아래 파일을 순서대로 실행�
 7. `pin-comment-management-migration.sql`
 8. `pin-reactions-migration.sql`
 9. `last-active-space-migration.sql`
+10. `notification-pin-link-migration.sql`
+11. `member-removal-migration.sql`
+12. `unique-nickname-migration.sql`
+13. `shared-favorites-migration.sql`
 
 `collaboration-migration.sql`은 현재의 핀 댓글, 경로, 채팅, 알림, 공간 멤버 구조를 만드는 기준 파일입니다. 정책과 트리거를 교체하는 구문이 있으므로, 데이터가 사라지지는 않지만 위 순서 이외의 구버전 파일과 섞어 실행하지 않습니다.
 
