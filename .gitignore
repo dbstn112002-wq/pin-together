@@ -2,6 +2,12 @@
 .wrangler/
 node_modules/
 
+# Local photo storage (never commit uploaded files)
+Pic/
+photo-server/.venv/
+photo-server/.env
+photo-server/__pycache__/
+
 # Local screenshots used for support/debugging
 문제*.png
 생성*.png
