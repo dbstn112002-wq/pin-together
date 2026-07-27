@@ -152,6 +152,11 @@ html.ios-compact #toast{z-index:2000!important;bottom:calc(env(safe-area-inset-b
   .photo-viewer-dialog{width:100vw;max-width:none;height:100dvh;max-height:none}
 }
 
+/* 핀 제목의 댓글 수 표시는 댓글창으로 가는 바로가기다. */
+.pin-comment-count{position:relative;cursor:pointer}.pin-comment-count:hover{filter:brightness(.95);text-decoration:underline}.pin-comment-count.has-unread-comments::after{content:"new";position:absolute;z-index:1;top:-8px;right:-19px;padding:2px 5px;border-radius:5px;background:#ef5d5d;color:#fff;font-size:8px;font-weight:800;line-height:1;text-decoration:none}
+.pin-reactions .pin-comment-count{margin-left:0;margin-right:4px;align-self:center}
+.pin-reactions .pin-comment-count.has-unread-comments{margin-right:28px}
+
 /* 핀 목록의 제목 왼쪽: 위치 핀과 색상 점을 세로로 함께 표시한다. */
 .pin-item{grid-template-columns:18px 1fr auto;align-items:start}
 .pin-item>.dot{position:relative;margin-top:23px}
@@ -164,3 +169,21 @@ html.ios-compact #toast{z-index:2000!important;bottom:calc(env(safe-area-inset-b
   .map-actions button::after,.ios-compact .map-actions button::after{display:block!important;font-size:18px!important;font-weight:800!important;line-height:1!important}
   .map-actions #mapTypeButton::after{content:"🗺"!important}.map-actions #locateButton::after{content:"◎"!important}.map-actions #locationShareButton::after{content:"⌖"!important}.map-actions #routeButton::after{content:"⌇"!important}.map-actions #addPinButton::after{content:"＋"!important;color:#fff!important}
 }
+
+/* iPhone Safari has a more specific compact-layout rule, so override it explicitly. */
+html.ios-compact .map-actions button{display:grid!important;place-items:center!important;width:40px!important;min-width:40px!important;height:40px!important;min-height:40px!important;padding:0!important;font-size:0!important;line-height:1!important}
+html.ios-compact .map-actions button::before{content:none!important}
+html.ios-compact .map-actions button::after{display:block!important;font-size:18px!important;font-weight:800!important;line-height:1!important}
+html.ios-compact .map-actions #mapTypeButton::after{content:"🗺"!important}html.ios-compact .map-actions #locateButton::after{content:"◎"!important}html.ios-compact .map-actions #locationShareButton::after{content:"⌖"!important}html.ios-compact .map-actions #routeButton::after{content:"⌇"!important}html.ios-compact .map-actions #addPinButton::after{content:"＋"!important;color:#fff!important}
+
+/* Theme switcher: light mode remains the default appearance. */
+@media(max-width:760px){.map-actions #themeButton::after{content:"☾"!important}.dark-mode .map-actions #themeButton::after{content:"☀"!important}}
+html.dark-mode{--ink:#e8eef5;--muted:#a6b4c3;--line:#344454;--coral:#f28b7f;background:#111a24;color:var(--ink)}
+html.dark-mode body,html.dark-mode .app header,html.dark-mode .app aside,html.dark-mode .card,html.dark-mode dialog,html.dark-mode .chat-dialog,html.dark-mode .chat-dialog header,html.dark-mode .chat-dialog #messageForm,html.dark-mode .gallery-card,html.dark-mode .pending-photo{background:#16212d;color:var(--ink)}
+html.dark-mode input,html.dark-mode textarea,html.dark-mode select,html.dark-mode .search,html.dark-mode .map-top form{background:#1e2b39;color:var(--ink);border-color:var(--line)}
+html.dark-mode .pin-item,html.dark-mode .result,html.dark-mode .notification-item:hover,html.dark-mode .pin-item:hover,html.dark-mode .pin-item.selected{background:#1a2734;color:var(--ink)}
+html.dark-mode .bubble,html.dark-mode .msg.mine .bubble,html.dark-mode .secondary,html.dark-mode .pin-actions button,html.dark-mode .reaction-button,html.dark-mode .member-avatar,html.dark-mode .pin-tag,html.dark-mode .comment-photo-picker,html.dark-mode .photo-thumb,html.dark-mode .notification-delete{background:#263646;color:var(--ink)}
+html.dark-mode .map-actions button,html.dark-mode #mapTypeMenu,html.dark-mode #mapTypeMenu button{background:#1c2a38!important;color:var(--ink)!important;border-color:#42566a!important}
+html.dark-mode .map-actions #addPinButton{background:var(--coral)!important;border-color:var(--coral)!important;color:#fff!important}
+html.dark-mode #map .leaflet-tile-pane{filter:brightness(.72) saturate(.78)}
+html.dark-mode .leaflet-popup-content-wrapper,html.dark-mode .leaflet-popup-tip{background:#1c2a38;color:var(--ink)}
