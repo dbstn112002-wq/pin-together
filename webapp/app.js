@@ -9,12 +9,25 @@ const colors = { coral:'#ed7668', red:'#df5353', orange:'#ef8a3c', amber:'#dea23
 const reactionTypes = [{ kind:'like', icon:'👍', label:'좋아요' }, { kind:'neutral', icon:'😐', label:'보통' }, { kind:'dislike', icon:'👎', label:'싫어요' }];
 const isIphoneSafari = /iPhone|iPod/i.test(navigator.userAgent);
 if (isIphoneSafari) document.documentElement.classList.add('ios-compact');
+const themeStorageKey = 'pin-together-theme';
+const initialTheme = localStorage.getItem(themeStorageKey) || 'light';
+if (initialTheme === 'dark') document.documentElement.classList.add('dark-mode');
 const $ = selector => document.querySelector(selector);
-const state = { user:null, profile:null, sessionNickname:'', spaces:[], active:'', pins:[], favorites:new Set(), selected:[], route:[], draftRoute:[], routes:[], activeRouteId:null, routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, pendingPinBackground:null, commentPin:null, commentSpaceId:null, editingPinId:null, editingPinBackground:null, openPopupPinId:null, openPopupElement:null, popupCloseTimer:null, notifications:[], members:[], messageReads:new Map(), photos:[], photoOrigins:new Map(), backgroundUrls:new Map(), pendingCommentPhotos:[] };
-let sb, map, lineLayer, baseLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, commentOpenRequestId = 0, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null, notificationHistoryOpen = false, closingNotificationFromBack = false, mobilePanelHistoryOpen = false, exitConfirmed = false, photoViewerHistoryOpen = false, closingPhotoViewerFromBack = false;
+const state = { user:null, profile:null, sessionNickname:'', spaces:[], active:'', pins:[], pinById:new Map(), favorites:new Set(), selected:[], route:[], draftRoute:[], routes:[], activeRouteId:null, routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, pendingPinBackground:null, commentPin:null, commentSpaceId:null, editingPinId:null, editingPinBackground:null, openPopupPinId:null, openPopupElement:null, popupCloseTimer:null, notifications:[], members:[], messageReads:new Map(), photos:[], photoOrigins:new Map(), backgroundUrls:new Map(), pendingCommentPhotos:[] };
+let sb, map, lineLayer, baseLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, commentOpenRequestId = 0, pinSearchTimer = null, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null, notificationHistoryOpen = false, closingNotificationFromBack = false, mobilePanelHistoryOpen = false, exitConfirmed = false, photoViewerHistoryOpen = false, closingPhotoViewerFromBack = false;
 const locationBroadcasts = new Map();
 
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2800); }
+function recordPerformance(name, startedAt, details={}) {
+  const metric = { name, durationMs:Math.round((performance.now() - startedAt) * 10) / 10, at:new Date().toISOString(), ...details };
+  window.__pinTogetherPerformance = { ...(window.__pinTogetherPerformance || {}), [name]:metric };
+  try {
+    if (sessionStorage.getItem('pin-together-performance-debug') === '1') console.info('[performance]', metric);
+  } catch (_) {
+    // Safari private browsing can restrict session storage; metrics should not affect the app.
+  }
+  return metric;
+}
 function show(view) { ['setupView','authView','appView'].forEach(id => $(`#${id}`).classList.toggle('hidden', id !== view)); }
 function showDialog(id) {
   const dialog = $(`#${id}`);
@@ -23,6 +36,17 @@ function showDialog(id) {
   if (form) form.inert = true;
   dialog.showModal();
   requestAnimationFrame(() => { dialog.focus({ preventScroll:true }); if (form) form.inert = false; });
+}
+function setTheme(theme) {
+  const dark = theme === 'dark';
+  document.documentElement.classList.toggle('dark-mode', dark);
+  localStorage.setItem(themeStorageKey, dark ? 'dark' : 'light');
+  const button = $('#themeButton');
+  if (button) {
+    button.textContent = dark ? '☀ 라이트 모드' : '☾ 다크 모드';
+    button.title = dark ? '라이트 모드로 전환' : '다크 모드로 전환';
+    button.setAttribute('aria-label', button.title);
+  }
 }
 function closeDialogs() { document.querySelectorAll('dialog[open]').forEach(d => d.close()); }
 async function signOut() { closeDialogs(); await sb.auth.signOut(); }
@@ -80,7 +104,9 @@ function initMap() {
   L.control.zoom({ position:'bottomright' }).addTo(map);
   setMapType(localStorage.getItem('pin-together-map-type') || 'road');
   const actions = $('.map-actions');
-  actions.insertAdjacentHTML('afterbegin', '<button id="mapTypeButton" type="button">지도 종류</button><div id="mapTypeMenu" class="hidden"><button type="button" data-map-type="road">🗺 기본 지도</button><button type="button" data-map-type="satellite">🛰 위성 지도</button></div>');
+  actions.insertAdjacentHTML('afterbegin', '<button id="themeButton" type="button"></button><button id="mapTypeButton" type="button">지도 종류</button><div id="mapTypeMenu" class="hidden"><button type="button" data-map-type="road">🗺 기본 지도</button><button type="button" data-map-type="satellite">🛰 위성 지도</button></div>');
+  setTheme(initialTheme);
+  $('#themeButton').addEventListener('click', () => setTheme(document.documentElement.classList.contains('dark-mode') ? 'light' : 'dark'));
   $('#mapTypeButton').addEventListener('click', () => $('#mapTypeMenu').classList.toggle('hidden'));
   document.querySelectorAll('[data-map-type]').forEach(button => button.addEventListener('click', () => { setMapType(button.dataset.mapType); $('#mapTypeMenu').classList.add('hidden'); }));
   lineLayer = L.layerGroup().addTo(map);
@@ -239,25 +265,35 @@ async function removeMember(userId) {
   toast(`${member.nickname} 님을 퇴장시켰습니다.`);
 }
 async function loadPins() {
-  // 기본 schema.sql만 실행한 상태에서도 동작하도록 생성 시각 기준으로 정렬합니다.
+  const startedAt = performance.now();
   const query = sb.from('pins').select('*, profiles!pins_author_id_fkey(nickname,pin_color)').order('created_at', { ascending:false });
   const { data, error } = state.active === 'all' ? await query : await query.eq('space_id', state.active);
   if (error) throw error;
   state.pins = data || [];
+  state.pinById = new Map(state.pins.map(pin => [pin.id, pin]));
   const ids = state.pins.map(pin => pin.id);
-  const { data: tagRows } = ids.length ? await sb.from('pin_tags').select('pin_id,tag').in('pin_id',ids) : { data:[] };
+  const emptyResult = Promise.resolve({ data:[] });
+  const [tagResult, reactionResult, commentResult, commentReadResult, favoriteResult] = await Promise.all([
+    ids.length ? sb.from('pin_tags').select('pin_id,tag').in('pin_id',ids) : emptyResult,
+    ids.length ? sb.from('pin_reactions').select('pin_id,user_id,kind,profiles!pin_reactions_user_id_fkey(nickname)').in('pin_id', ids) : emptyResult,
+    ids.length ? sb.from('pin_comments').select('pin_id,author_id,created_at').in('pin_id', ids) : emptyResult,
+    ids.length ? sb.from('pin_comment_reads').select('pin_id,last_read_at').eq('user_id', state.user.id).in('pin_id', ids) : emptyResult,
+    ids.length ? sb.from('shared_favorite_pins').select('pin_id').in('pin_id', ids) : emptyResult,
+    loadSharedRoute()
+  ]);
+  const tagRows = tagResult.data;
   const tagsByPin = new Map();
   (tagRows || []).forEach(row => tagsByPin.set(row.pin_id, [...(tagsByPin.get(row.pin_id) || []), row.tag]));
   state.pins.forEach(pin => pin.tags = tagsByPin.get(pin.id) || []);
-  const { data: reactionRows } = ids.length ? await sb.from('pin_reactions').select('pin_id,user_id,kind,profiles!pin_reactions_user_id_fkey(nickname)').in('pin_id', ids) : { data:[] };
+  const reactionRows = reactionResult.data;
   const reactionsByPin = new Map();
   (reactionRows || []).forEach(row => reactionsByPin.set(row.pin_id, [...(reactionsByPin.get(row.pin_id) || []), row]));
   state.pins.forEach(pin => pin.reactions = reactionsByPin.get(pin.id) || []);
-  const { data: commentRows } = ids.length ? await sb.from('pin_comments').select('pin_id,author_id,created_at').in('pin_id', ids) : { data:[] };
+  const commentRows = commentResult.data;
   const commentCounts = new Map();
   (commentRows || []).forEach(row => commentCounts.set(row.pin_id, (commentCounts.get(row.pin_id) || 0) + 1));
   state.pins.forEach(pin => pin.comment_count = commentCounts.get(pin.id) || 0);
-  const { data: commentReadRows } = ids.length ? await sb.from('pin_comment_reads').select('pin_id,last_read_at').eq('user_id', state.user.id).in('pin_id', ids) : { data:[] };
+  const commentReadRows = commentReadResult.data;
   const readAtByPin = new Map((commentReadRows || []).map(row => [row.pin_id, new Date(row.last_read_at).getTime()]));
   const unreadCounts = new Map();
   (commentRows || []).forEach(row => {
@@ -266,11 +302,11 @@ async function loadPins() {
   });
   state.pins.forEach(pin => pin.unread_comment_count = unreadCounts.get(pin.id) || 0);
   renderTagFilter();
-  const { data: favs } = ids.length ? await sb.from('shared_favorite_pins').select('pin_id').in('pin_id', ids) : { data:[] };
+  const favs = favoriteResult.data;
   state.favorites = new Set((favs || []).map(f => f.pin_id));
-  await loadSharedRoute();
   if (map) updateMeasure();
   renderPins();
+  recordPerformance('loadPins', startedAt, { requests:1 + (ids.length ? 5 : 0) + (state.active === 'all' ? 0 : 1), networkStages:ids.length ? 2 : 1, pins:state.pins.length });
 }
 async function loadMessages() {
   if (state.active === 'all') { $('#messages').innerHTML = '<p class="label">전체 지도에서는 채팅을 볼 수 없습니다. 여행 공간을 선택하세요.</p>'; return; }
@@ -406,30 +442,55 @@ function renderCommentPhotoPreview() {
 async function uploadCommentPhotos(commentId, items) {
   for (const item of items) { const form = new FormData(); form.append('space_id', state.commentSpaceId || state.active); form.append('source_type', 'comment'); form.append('source_id', commentId); form.append('tags', JSON.stringify(item.tags.split(',').map(tag => tag.trim().replace(/^#/, '')).filter(Boolean))); form.append('file', item.file); await photoFetch('/photos', { method:'POST', body:form }); }
 }
-function reactionMarkup(pin) {
-  return `<div class="pin-reactions">${reactionTypes.map(type => {
+function reactionButtonsMarkup(pin) {
+  return reactionTypes.map(type => {
     const rows = (pin.reactions || []).filter(row => row.kind === type.kind);
     const names = rows.map(row => row.profiles?.nickname || '참여자');
     const people = names.length ? `${names.slice(0,2).join(', ')}${names.length > 2 ? ` 외 ${names.length - 2}명` : ''}` : '';
     return `<button type="button" class="reaction-button ${rows.some(row => row.user_id === state.user?.id) ? 'active' : ''}" data-reaction-pin="${pin.id}" data-reaction-kind="${type.kind}" title="${type.label}${people ? `: ${people}` : ''}">${type.icon}<small>${people || '0'}</small></button>`;
-  }).join('')}</div>`;
+  }).join('');
+}
+function reactionMarkup(pin) {
+  return `<div class="pin-reactions">${reactionButtonsMarkup(pin)}</div>`;
+}
+function bindReactionButtons(root=document) {
+  root.querySelectorAll('[data-reaction-pin]').forEach(button => button.addEventListener('click', () => void toggleReaction(button.dataset.reactionPin, button.dataset.reactionKind)));
+}
+function refreshPinReactionUi(pinId) {
+  const pin = state.pinById.get(pinId) || state.pins.find(item => item.id === pinId);
+  if (!pin) return;
+  document.querySelectorAll('.pin-item').forEach(item => {
+    if (item.dataset.pin !== pinId) return;
+    const holder = item.querySelector('.pin-reactions');
+    if (!holder) return;
+    const commentCount = holder.querySelector('.pin-comment-count');
+    holder.replaceChildren();
+    if (commentCount) holder.append(commentCount);
+    holder.insertAdjacentHTML('beforeend', reactionButtonsMarkup(pin));
+    bindReactionButtons(holder);
+  });
+  refreshOpenPopupReactions();
 }
 async function toggleReaction(pinId, kind) {
-  const pin = state.pins.find(item => item.id === pinId);
+  const startedAt = performance.now();
+  const pin = state.pinById.get(pinId) || state.pins.find(item => item.id === pinId);
   if (!pin) return;
-  const mine = (pin.reactions || []).find(row => row.user_id === state.user.id);
+  const previousReactions = pin.reactions || [];
+  const mine = previousReactions.find(row => row.user_id === state.user.id);
+  pin.reactions = mine?.kind === kind
+    ? previousReactions.filter(row => row.user_id !== state.user.id)
+    : [...previousReactions.filter(row => row.user_id !== state.user.id), { pin_id:pinId, user_id:state.user.id, kind, profiles:{ nickname:activeNickname() } }];
+  refreshPinReactionUi(pinId);
   const request = mine?.kind === kind
     ? sb.from('pin_reactions').delete().eq('pin_id', pinId).eq('user_id', state.user.id)
     : sb.from('pin_reactions').upsert({ pin_id:pinId, user_id:state.user.id, kind }, { onConflict:'pin_id,user_id' });
   const { error } = await request;
-  if (error) return toast('반응 기능을 사용하려면 pin-reactions-migration.sql을 실행해 주세요.');
-  pin.reactions = mine?.kind === kind
-    ? (pin.reactions || []).filter(row => row.user_id !== state.user.id)
-    : [...(pin.reactions || []).filter(row => row.user_id !== state.user.id), { pin_id:pinId, user_id:state.user.id, kind, profiles:{ nickname:activeNickname() } }];
-  refreshOpenPopupReactions();
-  await loadPins();
-  requestAnimationFrame(refreshOpenPopupReactions);
-  setTimeout(refreshOpenPopupReactions, 120);
+  if (error) {
+    pin.reactions = previousReactions;
+    refreshPinReactionUi(pinId);
+    return toast('반응 기능을 사용하려면 pin-reactions-migration.sql을 실행해 주세요.');
+  }
+  recordPerformance('toggleReaction', startedAt, { requests:1, pinId });
 }
 function refreshOpenPopupReactions() {
   if (!state.openPopupPinId || !map) return;
@@ -458,12 +519,29 @@ function renderPins() {
     const pin = state.pins.find(entry => entry.id === item.dataset.pin);
     if (!pin) return;
     item.insertAdjacentHTML('beforeend', reactionMarkup(pin));
+    let commentCount = item.querySelector('.pin-comment-count');
+    const reactions = item.querySelector('.pin-reactions');
+    if (!commentCount) {
+      commentCount = document.createElement('span');
+      commentCount.className = 'pin-comment-count';
+      commentCount.title = '댓글 0개';
+      commentCount.textContent = '↳ 0';
+    }
+    commentCount.classList.toggle('has-unread-comments', Boolean(pin.unread_comment_count));
+    item.querySelector('.pin-unread-dot')?.remove();
+    if (reactions) reactions.prepend(commentCount);
   });
   if (!keepMapPopup) pins.forEach(pin => L.marker([pin.latitude, pin.longitude], { icon:pinIcon(pin) }).addTo(state.markers).bindPopup(`<strong>${escapeHtml(pin.title)}</strong><br><small>작성자: ${escapeHtml(pin.author_nickname || pin.profiles?.nickname || '참여자')}</small><br><small>${escapeHtml(pin.note || '메모 없음')}</small><br><small>핀 생성: ${timeFull(pin.created_at)}</small><br><button class="favorite-popup" data-favorite="${pin.id}">☆ 즐겨찾기</button> <button class="favorite-popup" data-popup-comment="${pin.id}">💬 댓글 보기</button>`).on('click', () => { if (state.routeMode) selectPin(pin); }).on('popupopen', event => event.popup.getElement()?.querySelector('[data-popup-comment]')?.addEventListener('click', () => openComments(pin.id))));
   document.querySelectorAll('.pin-open').forEach(el => el.addEventListener('click', () => { const pin = state.pins.find(p => p.id === el.dataset.pin); map.flyTo([pin.latitude, pin.longitude], 15); selectPin(pin); }));
   document.querySelectorAll('[data-edit]').forEach(el => el.addEventListener('click', () => editPin(el.dataset.edit)));
   document.querySelectorAll('[data-delete-pin]').forEach(el => el.addEventListener('click', () => deletePin(el.dataset.deletePin)));
-  document.querySelectorAll('[data-comment]').forEach(el => el.addEventListener('click', () => openComments(el.dataset.comment)));
+  document.querySelectorAll('[data-comment]').forEach(el => el.remove());
+  document.querySelectorAll('.pin-comment-count').forEach(el => el.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const pinId = el.closest('.pin-item')?.dataset.pin;
+    if (pinId) void openComments(pinId);
+  }));
   document.querySelectorAll('[data-favorite]').forEach(el => el.addEventListener('click', () => toggleFavorite(el.dataset.favorite)));
   document.querySelectorAll('[data-reaction-pin]').forEach(el => el.addEventListener('click', () => void toggleReaction(el.dataset.reactionPin, el.dataset.reactionKind)));
   document.querySelectorAll('.favorite-popup').forEach(el => el.addEventListener('click', () => toggleFavorite(el.dataset.favorite)));
@@ -583,11 +661,29 @@ async function createPin(event) {
   closeDialogs(); state.pending = null; $('#pinForm').reset(); await loadPins(); await loadSpacePhotos(); toast('핀이 추가되었습니다.');
 }
 async function toggleFavorite(pinId) {
+  const startedAt = performance.now();
   const isFavorite = state.favorites.has(pinId);
+  isFavorite ? state.favorites.delete(pinId) : state.favorites.add(pinId);
+  refreshFavoriteUi(pinId);
   const { error } = await sb.rpc('set_shared_pin_favorite', { target_pin:pinId, make_favorite:!isFavorite });
-  if (error) return toast('공통 즐겨찾기 기능을 사용하려면 shared-favorites-migration.sql을 실행해 주세요.');
-  await loadPins();
+  if (error) {
+    isFavorite ? state.favorites.add(pinId) : state.favorites.delete(pinId);
+    refreshFavoriteUi(pinId);
+    return toast('공통 즐겨찾기 기능을 사용하려면 shared-favorites-migration.sql을 실행해 주세요.');
+  }
+  recordPerformance('toggleFavorite', startedAt, { requests:1, pinId });
   toast(isFavorite ? '공통 즐겨찾기에서 제거했습니다.' : '모든 참가자에게 공통 즐겨찾기로 표시됩니다.');
+}
+function refreshFavoriteUi(pinId) {
+  const isFavorite = state.favorites.has(pinId);
+  document.querySelectorAll(`[data-favorite="${pinId}"]`).forEach(button => {
+    button.textContent = button.classList.contains('favorite-popup')
+      ? `${isFavorite ? '★' : '☆'} 즐겨찾기`
+      : (isFavorite ? '★' : '☆');
+    button.setAttribute('aria-pressed', String(isFavorite));
+  });
+  $('#favoriteCount').textContent = state.pins.filter(pin => state.favorites.has(pin.id)).length || '';
+  if (!$('#favoritesPanel').classList.contains('hidden')) renderPins();
 }
 function currentRole() { return state.spaces.find(item => item.space_id === state.active)?.role; }
 function canManagePin(pin) { return Boolean(pin && pin.author_id === state.user?.id); }
@@ -976,7 +1072,7 @@ function bindUi() {
       toast('연결할 핀 두 개를 순서대로 선택하세요. 두 번째 핀에서 자동 확정됩니다.');
     }
     updateMeasure(); renderPins();
-  }); $('#closeMeasure').addEventListener('click', () => $('#measureCard').classList.add('hidden')); $('#pinSearch').addEventListener('input', renderPins); $('#tagFilter').addEventListener('change', renderPins); $('#placeSearchForm').addEventListener('submit', searchPlace);
+  }); $('#closeMeasure').addEventListener('click', () => $('#measureCard').classList.add('hidden')); $('#pinSearch').addEventListener('input', () => { clearTimeout(pinSearchTimer); pinSearchTimer = setTimeout(() => { const startedAt = performance.now(); renderPins(); recordPerformance('pinSearch', startedAt, { debounceMs:180 }); }, 180); }); $('#tagFilter').addEventListener('change', renderPins); $('#placeSearchForm').addEventListener('submit', searchPlace);
   $('#locateButton').addEventListener('click', () => { if (!navigator.geolocation) return toast('이 브라우저는 위치 기능을 지원하지 않습니다.'); toast('현재 위치를 찾는 중입니다.'); navigator.geolocation.getCurrentPosition(pos => { const point = [pos.coords.latitude,pos.coords.longitude]; map.flyTo(point,16,{animate:true,duration:.6}); L.circleMarker(point,{radius:9,color:'#fff',weight:3,fillColor:colors.blue,fillOpacity:1}).addTo(map); toast('현재 위치로 이동했습니다.'); }, () => toast('현재 위치 권한을 허용해 주세요.'), { enableHighAccuracy:true, maximumAge:15000, timeout:15000 }); });
   $('#locationShareButton').addEventListener('click', startLocationShare);
   document.querySelectorAll('[data-panel]').forEach(button => button.addEventListener('click', () => void activatePanel(button.dataset.panel)));
