@@ -49,6 +49,7 @@ create table public.pins (
   latitude double precision not null check (latitude between -90 and 90),
   longitude double precision not null check (longitude between -180 and 180),
   color text not null default 'coral' check (color in ('coral','blue','amber','green','purple')),
+  scheduled_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

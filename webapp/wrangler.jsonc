@@ -2,8 +2,18 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dry-butterfly-8a6f",
   "compatibility_date": "2026-07-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "worker.js",
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "assets": {
-    "directory": "."
+    "directory": ".",
+    "binding": "ASSETS"
+  },
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": {
+    "SUPABASE_REST_URL": "https://dcuorelcsmvrchkbjnqp.supabase.co/rest/v1",
+    "ADMIN_EMAILS": "master1@example.com,master2@example.com,master3@example.com,master4@example.com,master5@example.com",
+    "RELEASE_ANNOUNCEMENT": "알림 제목과 내용 사이에 여백을 두어 읽기 쉽게 개선했습니다."
   },
   "routes": [
     {
