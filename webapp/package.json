@@ -2,5 +2,10 @@
   "name": "pin-together",
   "private": true,
   "version": "0.1.0",
-  "scripts": { "dev": "node server.mjs" }
+  "scripts": {
+    "dev": "node server.mjs"
+  },
+  "dependencies": {
+    "@block65/webcrypto-web-push": "^1.0.2"
+  }
 }
