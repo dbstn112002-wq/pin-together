@@ -39,24 +39,65 @@ create policy "users edit visible checklist items" on public.checklist_items for
 
 alter table public.notification_preferences add column if not exists checklist boolean not null default true;
 alter table public.notifications drop constraint if exists notifications_kind_check;
-alter table public.notifications add constraint notifications_kind_check check (kind in ('pin','message','comment','reply','route','member','invite','reaction','favorite','location','system','checklist'));
+alter table public.notifications add constraint notifications_kind_check check (kind in ('pin','message','comment','reply','route','member','invite','reaction','favorite','location','system','checklist','poll'));
 do $$ begin
   if exists (select 1 from pg_type where typnamespace='public'::regnamespace and typname='notification_kind') then alter type public.notification_kind add value if not exists 'checklist'; end if;
 end $$;
 
-create or replace function public.notify_space_checklist_created() returns trigger language plpgsql security definer set search_path = public as $$
+-- 공간 또는 핀에 연결된 체크리스트의 모든 변경을 알립니다. 개인 목록은 공간에 속하지 않으므로 제외합니다.
+create or replace function public.notify_checklist_activity(p_checklist_id uuid, p_message text) returns void language plpgsql security definer set search_path = public as $$
+declare target_space_id uuid;
+declare actor_id uuid;
 declare actor_name text;
 begin
-  if new.scope <> 'space' then return new; end if;
-  select nickname into actor_name from public.profiles where id = new.owner_id;
+  select c.space_id, coalesce(auth.uid(), c.owner_id) into target_space_id, actor_id from public.checklists c where c.id = p_checklist_id;
+  if target_space_id is null then return; end if;
+  select nickname into actor_name from public.profiles where id = actor_id;
   insert into public.notifications(user_id, space_id, kind, body)
-  select sm.user_id, new.space_id, 'checklist', coalesce(actor_name, '참여자') || ' : ' || new.title || ' 체크리스트가 생성되었습니다.'
+  select sm.user_id, target_space_id, 'checklist', coalesce(actor_name, '참여자') || ' : ' || p_message
   from public.space_members sm left join public.notification_preferences np on np.user_id = sm.user_id
-  where sm.space_id = new.space_id and sm.user_id <> new.owner_id and coalesce(np.checklist, true);
-  return new;
+  where sm.space_id = target_space_id and sm.user_id <> actor_id and coalesce(np.checklist, true);
 end $$;
+
+create or replace function public.notify_checklist_changed() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    perform public.notify_checklist_activity(new.id, new.title || case when new.scope = 'pin' then ' 체크리스트를 핀에 추가했습니다.' else ' 체크리스트를 생성했습니다.' end);
+    return new;
+  end if;
+  perform public.notify_checklist_activity(old.id, old.title || ' 체크리스트를 삭제했습니다.');
+  return old;
+end $$;
+
+create or replace function public.notify_checklist_item_changed() returns trigger language plpgsql security definer set search_path = public as $$
+declare checklist_title text;
+declare target_id uuid;
+declare message text;
+begin
+  -- 상위 체크리스트 삭제에 의해 실행된 cascade 항목 삭제는 별도 알림으로 보내지 않습니다.
+  if pg_trigger_depth() > 1 then if tg_op = 'DELETE' then return old; else return new; end if; end if;
+  if tg_op = 'DELETE' then target_id := old.checklist_id; else target_id := new.checklist_id; end if;
+  select title into checklist_title from public.checklists where id = target_id;
+  -- 상위 체크리스트 삭제에 따른 cascade 삭제는 상위 목록 삭제 알림 한 건으로만 처리합니다.
+  if checklist_title is null then if tg_op = 'DELETE' then return old; else return new; end if; end if;
+  if tg_op = 'INSERT' then
+    message := checklist_title || '에 항목을 추가했습니다: ' || new.label;
+  elsif tg_op = 'DELETE' then
+    message := checklist_title || '에서 항목을 삭제했습니다: ' || old.label;
+  elsif new.is_checked is distinct from old.is_checked then
+    message := checklist_title || ' 항목을 ' || case when new.is_checked then '체크했습니다: ' else '체크 해제했습니다: ' end || new.label;
+  else
+    message := checklist_title || ' 항목을 수정했습니다: ' || new.label;
+  end if;
+  perform public.notify_checklist_activity(target_id, message);
+  if tg_op = 'DELETE' then return old; else return new; end if;
+end $$;
+
 drop trigger if exists checklists_notify_created on public.checklists;
-create trigger checklists_notify_created after insert on public.checklists for each row execute function public.notify_space_checklist_created();
+drop trigger if exists checklists_notify_changed on public.checklists;
+create trigger checklists_notify_changed after insert or delete on public.checklists for each row execute function public.notify_checklist_changed();
+drop trigger if exists checklist_items_notify_changed on public.checklist_items;
+create trigger checklist_items_notify_changed after insert or update or delete on public.checklist_items for each row execute function public.notify_checklist_item_changed();
 
 do $$ begin
   if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='checklists') then alter publication supabase_realtime add table public.checklists; end if;

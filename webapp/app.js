@@ -94,7 +94,7 @@ function toggleMobilePanel() {
   mobilePanelHistoryOpen = true;
 }
 function initials(name='나') { return name.trim().slice(0,1); }
-const notificationPreferenceDefaults = { pin:true, comment:true, reply:true, message:true, route:true, invite:true, reaction:true, favorite:false, location:false, checklist:true, announcement:true, system:true, quiet_mode:false };
+const notificationPreferenceDefaults = { pin:true, comment:true, reply:true, message:true, route:true, invite:true, reaction:true, favorite:false, location:false, checklist:true, poll:true, announcement:true, system:true, quiet_mode:false };
 function notificationPreferenceKey() { return `pin-together-notification-preferences:${state.user?.id || 'guest'}`; }
 function loadNotificationPreferences() {
   try { return { ...notificationPreferenceDefaults, ...JSON.parse(localStorage.getItem(notificationPreferenceKey()) || '{}') }; }
@@ -558,11 +558,23 @@ function renderPollDetail(pollId) {
   }).join('') || '<p class="label">등록된 항목이 없습니다.</p>';
   $('#pollDetailAddArea').classList.toggle('hidden', !active);
   $('#pollDetailAddButton').dataset.pollId = poll.id;
+  $('#deletePollButton').classList.toggle('hidden', poll.creator_id !== state.user?.id);
+  $('#deletePollButton').dataset.pollId = poll.id;
   $('#pollDetailOptionDraft').value = '';
   $('#pollDetailOptions').querySelectorAll('[data-vote-option]').forEach(button => button.addEventListener('click', () => void castPollVote(button.dataset.votePoll, button.dataset.voteOption)));
   $('#pollDetailPins').querySelectorAll('[data-open-linked-pin]').forEach(button => button.addEventListener('click', () => focusLinkedPin(button.dataset.openLinkedPin)));
 }
 function openPollDetail(pollId) { renderPollDetail(pollId); showDialog('pollDetailDialog'); }
+async function deletePoll(pollId) {
+  const poll = state.polls.find(item => item.id === pollId);
+  if (!poll || poll.creator_id !== state.user?.id) return toast('투표 생성자만 삭제할 수 있습니다.');
+  if (!confirm(`“${poll.title}” 투표를 삭제할까요? 연결된 핀과 투표 기록도 함께 삭제됩니다.`)) return;
+  const { error } = await sb.from('polls').delete().eq('id', pollId).eq('creator_id', state.user.id);
+  if (error) return toast(`투표 삭제에 실패했습니다: ${error.message}`);
+  $('#pollDetailDialog').close();
+  await loadPolls();
+  toast('투표를 삭제했습니다.');
+}
 async function addPollOption(pollId) {
   const poll = state.polls.find(item => item.id === pollId), input = $('#pollDetailOptionDraft'), label = input.value.trim();
   if (!poll || !pollIsActive(poll) || !label) return;
@@ -1334,7 +1346,7 @@ async function loadNotifications() {
 }
 function renderNotifications() {
   const list = $('#notificationsList');
-  const titleByKind = { pin:'핀 알림', comment:'댓글', message:'채팅', route:'경로', member:'참가자', invite:'초대', reaction:'반응', favorite:'즐겨찾기', location:'위치 공유', system:'시스템 알림' };
+  const titleByKind = { pin:'핀 알림', comment:'댓글', message:'채팅', route:'경로', member:'참가자', invite:'초대', reaction:'반응', favorite:'즐겨찾기', location:'위치 공유', checklist:'체크리스트', poll:'투표', system:'시스템 알림' };
   const destinationText = item => item.kind === 'comment' ? ' · 댓글 보기' : item.kind === 'message' ? ' · 채팅으로 이동' : item.kind === 'route' ? ' · 경로 보기' : item.pin_id ? ' · 핀 위치로 이동' : '';
   const isAnnouncement = isAnnouncementNotification;
   const isDeploymentNotice = item => item.kind === 'system' && /^\[배포:[^\]]+\]\n/.test(item.body);
@@ -1666,6 +1678,9 @@ function bindUi() {
     document.body.insertAdjacentHTML('beforeend', '<dialog id="checklistCreateDialog"><form id="checklistCreateForm"><h2>체크리스트 생성</h2><label>구분<select id="checklistScope"><option value="personal">개인 체크리스트</option><option value="space">공간 체크리스트</option></select></label><label>아이콘<select id="checklistIcon"><option value="✅">✅ 준비</option><option value="🧳">🧳 짐</option><option value="🛂">🛂 서류</option><option value="🏨">🏨 숙소</option><option value="✦">✦ 기타</option></select></label><label>제목<input id="checklistTitle" maxlength="80" required /></label><label>항목 <small>한 줄에 하나씩 붙여넣기 또는 Enter</small><textarea id="checklistDraft" maxlength="3000" placeholder="여권&#10;항공권&#10;유심"></textarea></label><div id="checklistDraftItems" class="checklist-draft-items"></div><div class="dialog-actions"><button type="button" data-close="checklistCreateDialog" class="secondary">취소</button><button class="primary">저장</button></div></form></dialog><dialog id="checklistDetailDialog"><section class="poll-detail-dialog"><div class="notification-dialog-header"><h2 id="checklistDetailTitle">체크리스트</h2><div class="checklist-detail-dialog-actions"><button id="checklistDeleteButton" type="button" class="notification-header-button hidden">삭제</button><button id="checklistAllToggle" type="button" class="notification-header-button">전체 체크</button><button type="button" data-close="checklistDetailDialog" class="notification-header-button">닫기</button></div></div><div id="checklistItemAdd" class="checklist-item-add"><input id="checklistNewItem" maxlength="200" placeholder="새 항목" /><button id="checklistItemAddButton" type="button" class="secondary">추가</button></div><div id="checklistDetailItems" class="checklist-detail-items"></div></section></dialog>');
     $('#notificationSettingsForm [name="system"]').closest('label')?.insertAdjacentHTML('beforebegin', '<label><input type="checkbox" name="checklist" /> 체크리스트</label>');
   }
+  if (!$('#notificationSettingsForm [name="poll"]')) {
+    ($('#notificationSettingsForm [name="checklist"]') || $('#notificationSettingsForm [name="system"]')).closest('label')?.insertAdjacentHTML('afterend', '<label><input type="checkbox" name="poll" /> 투표</label>');
+  }
   if (!$('#pinChecklistButton')) {
     $('#pinForm .dialog-actions').insertAdjacentHTML('beforebegin', '<button type="button" id="pinChecklistButton" class="secondary wide">체크리스트 가져오기</button>');
     document.body.insertAdjacentHTML('beforeend', '<dialog id="pinChecklistPickerDialog"><section class="poll-detail-dialog"><div class="notification-dialog-header"><h2>체크리스트 가져오기</h2><button type="button" data-close="pinChecklistPickerDialog" class="notification-header-button">닫기</button></div><div id="pinChecklistPickerList"></div><div class="dialog-actions"><button type="button" id="pinChecklistNewButton" class="secondary">새 체크리스트 생성</button><button type="button" id="confirmPinChecklistButton" class="primary">선택 완료</button></div></section></dialog>');
@@ -1753,6 +1768,7 @@ function bindUi() {
   $('#pollDetailOptionDraft').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); void addPollOption($('#pollDetailAddButton').dataset.pollId); } });
   $('#pollLinkButton').addEventListener('click', () => openPollPinPicker('create'));
   $('#pollPinSearch').addEventListener('input', renderPollPinPicker);
+  $('#deletePollButton').addEventListener('click', () => void deletePoll($('#deletePollButton').dataset.pollId));
   $('#confirmPollPinButton').addEventListener('click', () => { if (!selectedPollPinId) return toast('연결할 핀을 선택해 주세요.'); $('#pollPinPickerDialog').close(); if (pollPinPickerTarget === 'create') renderPollCreateLinkedPin(); });
   $('#createPinLinkedPollButton').addEventListener('click', () => { $('#pinPollDialog').close(); openPollCreateDialog(pinPollDialogPinId); });
   ['pollCreateDialog', 'pollDetailDialog', 'pollPinPickerDialog', 'pinPollDialog'].forEach(id => $(`#${id}`).addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); }));

@@ -1,8 +1,8 @@
 import { buildPushPayload } from '@block65/webcrypto-web-push';
 
-const defaultPreferences = { pin:true, comment:true, reply:true, message:true, route:true, invite:true, reaction:true, favorite:false, location:false, checklist:true, announcement:true, system:true };
-const preferenceByKind = { pin:'pin', comment:'comment', message:'message', route:'route', member:'invite', invite:'invite', reaction:'reaction', favorite:'favorite', location:'location', checklist:'checklist' };
-const notificationTitles = { pin:'핀 알림', comment:'댓글', message:'채팅', route:'경로', member:'참가자', invite:'초대', reaction:'반응', favorite:'즐겨찾기', location:'위치 공유', checklist:'체크리스트', system:'시스템 알림' };
+const defaultPreferences = { pin:true, comment:true, reply:true, message:true, route:true, invite:true, reaction:true, favorite:false, location:false, checklist:true, poll:true, announcement:true, system:true };
+const preferenceByKind = { pin:'pin', comment:'comment', message:'message', route:'route', member:'invite', invite:'invite', reaction:'reaction', favorite:'favorite', location:'location', checklist:'checklist', poll:'poll' };
+const notificationTitles = { pin:'핀 알림', comment:'댓글', message:'채팅', route:'경로', member:'참가자', invite:'초대', reaction:'반응', favorite:'즐겨찾기', location:'위치 공유', checklist:'체크리스트', poll:'투표', system:'시스템 알림' };
 // Push begins from this production activation point; older in-app history must never be replayed.
 const PUSH_ENABLED_AT = new Date('2026-07-28T09:46:00.000Z');
 const DEPLOYMENT_PUSH_MAX_AGE_MS = 10 * 60 * 1000;
