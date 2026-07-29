@@ -60,9 +60,15 @@ begin
 end $$;
 
 create or replace function public.notify_checklist_changed() returns trigger language plpgsql security definer set search_path = public as $$
+declare pin_title text;
 begin
   if tg_op = 'INSERT' then
-    perform public.notify_checklist_activity(new.id, new.title || case when new.scope = 'pin' then ' 체크리스트를 핀에 추가했습니다.' else ' 체크리스트를 생성했습니다.' end);
+    if new.scope = 'pin' then
+      select title into pin_title from public.pins where id = new.pin_id;
+      perform public.notify_checklist_activity(new.id, coalesce(pin_title, '이 핀') || '에 ' || new.title || ' 체크리스트를 추가했습니다.');
+    else
+      perform public.notify_checklist_activity(new.id, new.title || ' 체크리스트를 생성했습니다.');
+    end if;
     return new;
   end if;
   perform public.notify_checklist_activity(old.id, old.title || ' 체크리스트를 삭제했습니다.');
@@ -73,13 +79,16 @@ create or replace function public.notify_checklist_item_changed() returns trigge
 declare checklist_title text;
 declare target_id uuid;
 declare message text;
+declare checklist_created_at timestamptz;
 begin
   -- 상위 체크리스트 삭제에 의해 실행된 cascade 항목 삭제는 별도 알림으로 보내지 않습니다.
   if pg_trigger_depth() > 1 then if tg_op = 'DELETE' then return old; else return new; end if; end if;
   if tg_op = 'DELETE' then target_id := old.checklist_id; else target_id := new.checklist_id; end if;
-  select title into checklist_title from public.checklists where id = target_id;
+  select title, created_at into checklist_title, checklist_created_at from public.checklists where id = target_id;
   -- 상위 체크리스트 삭제에 따른 cascade 삭제는 상위 목록 삭제 알림 한 건으로만 처리합니다.
   if checklist_title is null then if tg_op = 'DELETE' then return old; else return new; end if; end if;
+  -- 새 목록을 생성·가져올 때 함께 복사한 초기 항목은 목록 알림 한 건으로 묶습니다.
+  if tg_op = 'INSERT' and checklist_created_at > now() - interval '90 seconds' then return new; end if;
   if tg_op = 'INSERT' then
     message := checklist_title || '에 항목을 추가했습니다: ' || new.label;
   elsif tg_op = 'DELETE' then
