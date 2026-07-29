@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "node server.mjs",
-    "deploy:production": "npx wrangler deploy && node -e \"setTimeout(()=>{}, 20000)\" && curl.exe -sS -w \"\\nDeployment notification: %{http_code}\\n\" -X POST https://pintogether-photo.com/internal/deployment-notification"
+    "deploy:production": "npx wrangler deploy && node scripts/notify-deployment.mjs"
   },
   "dependencies": {
     "@block65/webcrypto-web-push": "^1.0.2"

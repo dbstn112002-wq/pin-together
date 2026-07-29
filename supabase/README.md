@@ -25,6 +25,13 @@ Supabase Dashboard의 **SQL Editor**에서 아래 파일을 순서대로 실행�
 17. `actor-nickname-notifications-migration.sql`
 18. `immediate-push-migration.sql`
 19. `quiet-activity-migration.sql`
+20. `pin-icons-migration.sql`
+21. `polls-migration.sql`
+22. `checklists-migration.sql`
+
+`polls-migration.sql`은 투표, 항목, 투표 기록, 핀 연결(`poll_pin_links`)을 만듭니다. 이미 실행한 경우에도 최신 정책과 핀 연결 테이블을 반영하기 위해 같은 파일을 다시 실행해도 안전합니다.
+
+`checklists-migration.sql`은 개인·공간·핀 체크리스트와 항목, 실시간 동기화, 공간 체크리스트 생성 알림을 만듭니다. 체크리스트 기능을 사용하기 전에 반드시 실행합니다.
 
 `collaboration-migration.sql`은 현재의 핀 댓글, 경로, 채팅, 알림, 공간 멤버 구조를 만드는 기준 파일입니다. 정책과 트리거를 교체하는 구문이 있으므로, 데이터가 사라지지는 않지만 위 순서 이외의 구버전 파일과 섞어 실행하지 않습니다.
 

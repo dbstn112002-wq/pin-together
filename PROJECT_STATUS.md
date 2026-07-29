@@ -29,6 +29,7 @@
 - 공간 참가자 탭, 초대 코드만 복사, 알림 개별·전체 삭제
 - 사용자별 마지막 여행 공간 복원 (브라우저 저장 + DB 지원)
 - Master1~Master5 로그인 식별자 및 닉네임 유지
+- 핀 아이콘 분류, 공간 투표와 핀 연결, 개인·공간·핀 체크리스트 관리
 
 ## Supabase SQL 적용 상태
 
@@ -43,12 +44,15 @@ SQL 실행 기준은 `supabase/README.md`를 사용합니다. 아래 파일은 �
 7. `supabase/pin-comment-management-migration.sql`
 8. `supabase/pin-reactions-migration.sql`
 9. `supabase/last-active-space-migration.sql`
+10. `supabase/pin-icons-migration.sql`
+11. `supabase/polls-migration.sql`
+12. `supabase/checklists-migration.sql`
 
 특히 7~9번은 핀 색상·편집 권한, 반응 버튼, 마지막 여행 공간 저장에 필요합니다. 구버전 파일인 `features-migration.sql`, `comments-migration.sql`, `space-delete-migration.sql`은 실행하지 않습니다.
 
 ## 아직 구현하지 않은 항목
 
-- 휴대폰 푸시 알림(PWA Service Worker + Web Push)은 아직 구현 전입니다.
+- 휴대폰 푸시 알림(PWA Service Worker + Web Push)은 구현되어 있으며, 기기별 알림 권한과 수신 설정이 필요합니다.
 - 실시간 위치 공유 채널은 서버 측 멤버 검증 강화가 필요합니다.
 - Master2~Master5는 Supabase Authentication에 실제 계정을 만들어야 로그인할 수 있습니다.
 

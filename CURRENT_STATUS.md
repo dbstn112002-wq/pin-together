@@ -20,6 +20,7 @@
 - 공지와 시스템 업데이트 수신 설정 분리, 여행 공간별 최신 공지 한 건 고정
 - 핀·댓글·채팅·경로 등 활동 알림에 작성자 닉네임 표시
 - Cloudflare 배포 버전별 업데이트 알림 자동 생성
+- 핀 아이콘 분류, 공간 투표와 핀 연결, 개인·공간·핀 체크리스트 관리
 
 ## Supabase SQL
 
@@ -29,6 +30,9 @@
 2. `active-announcement-migration.sql`
 3. `announcement-preferences-migration.sql`
 4. `actor-nickname-notifications-migration.sql`
+5. `pin-icons-migration.sql`
+6. `polls-migration.sql`
+7. `checklists-migration.sql`
 
 이미 실행한 파일은 다시 실행하지 않는다. 오류가 발생하면 다음 SQL을 실행하지 말고 오류 문구를 확인한다.
 
