@@ -9,7 +9,7 @@
     "directory": ".",
     "binding": "ASSETS"
   },
-  "triggers": { "crons": ["0 * * * *"] },
+  "triggers": { "crons": ["* * * * *"] },
   "vars": {
     "SUPABASE_REST_URL": "https://dcuorelcsmvrchkbjnqp.supabase.co/rest/v1",
     "ADMIN_EMAILS": "master1@example.com,master2@example.com,master3@example.com,master4@example.com,master5@example.com",

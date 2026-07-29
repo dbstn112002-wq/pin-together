@@ -21,6 +21,8 @@ npx.cmd wrangler deploy
 
 `npx.cmd wrangler deploy`는 사이트만 배포하며 시스템 업데이트 푸시는 보내지 않는다.
 
+일반 푸시는 DB의 `immediate-push-migration.sql` 트리거로 즉시 전송한다. 이 트리거가 적용되지 않은 경우에도 Worker가 매분 미전송 알림을 재시도한다.
+
 ```powershell
 npm.cmd run deploy:production
 ```
