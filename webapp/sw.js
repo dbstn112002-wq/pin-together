@@ -1,4 +1,5 @@
-const CACHE_NAME = 'pin-together-shell-v3';
+const CACHE_NAME = 'pin-together-shell-v4';
+const DEPLOYMENT_STATE_URL = '/__pin-together-latest-deployment';
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -34,18 +35,30 @@ self.addEventListener('fetch', event => {
   event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request)));
 });
 
+async function shouldShowDeployment(payload) {
+  if (!payload.deployment || !payload.createdAt) return true;
+  const cache = await caches.open(CACHE_NAME);
+  const request = new Request(new URL(DEPLOYMENT_STATE_URL, self.location.origin));
+  const previous = await cache.match(request);
+  const previousTime = previous ? Number(await previous.text()) : 0;
+  const currentTime = new Date(payload.createdAt).getTime();
+  if (Number.isFinite(previousTime) && previousTime > currentTime) return false;
+  await cache.put(request, new Response(String(currentTime)));
+  return true;
+}
+
 self.addEventListener('push', event => {
   let payload = {};
   try { payload = event.data?.json() || {}; }
   catch { payload = { body:event.data?.text() || '새 알림이 있습니다.' }; }
   const title = payload.title || '핀투게더';
-  event.waitUntil(self.registration.showNotification(title, {
+  event.waitUntil(shouldShowDeployment(payload).then(show => show && self.registration.showNotification(title, {
     body:payload.body || '새 알림이 있습니다.',
     icon:'/icons/pin-together.svg',
     badge:'/icons/pin-together.svg',
     tag:payload.tag || `pin-together-${Date.now()}`,
     data:{ url:payload.url || '/' }
-  }));
+  })));
 });
 
 self.addEventListener('notificationclick', event => {

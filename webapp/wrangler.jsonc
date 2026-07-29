@@ -9,11 +9,11 @@
     "directory": ".",
     "binding": "ASSETS"
   },
-  "triggers": { "crons": ["* * * * *"] },
+  "triggers": { "crons": ["0 * * * *"] },
   "vars": {
     "SUPABASE_REST_URL": "https://dcuorelcsmvrchkbjnqp.supabase.co/rest/v1",
     "ADMIN_EMAILS": "master1@example.com,master2@example.com,master3@example.com,master4@example.com,master5@example.com",
-    "RELEASE_ANNOUNCEMENT": "알림 제목과 내용 사이에 여백을 두어 읽기 쉽게 개선했습니다."
+    "RELEASE_ANNOUNCEMENT": "알림 제목과 본문의 중복 표현을 정리했습니다. 채팅·댓글·핀·경로 알림은 제목에 종류를 표시하고 본문에는 닉네임과 내용만 표시됩니다."
   },
   "routes": [
     {

@@ -13,7 +13,7 @@ const themeStorageKey = 'pin-together-theme';
 const initialTheme = localStorage.getItem(themeStorageKey) || 'light';
 if (initialTheme === 'dark') document.documentElement.classList.add('dark-mode');
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(error => {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=20260728-deployment-collapse').catch(error => {
     console.warn('PWA service worker registration failed.', error);
   }));
   navigator.serviceWorker.addEventListener('message', event => {
@@ -23,7 +23,8 @@ if ('serviceWorker' in navigator) {
 }
 const $ = selector => document.querySelector(selector);
 const state = { user:null, profile:null, sessionNickname:'', spaces:[], active:'', pins:[], pinById:new Map(), favorites:new Set(), selected:[], route:[], draftRoute:[], routes:[], activeRouteId:null, routeMode:false, markers:null, locationMarkers:null, channel:null, pending:null, pendingPinBackground:null, commentPin:null, commentSpaceId:null, editingPinId:null, editingPinBackground:null, openPopupPinId:null, openPopupElement:null, popupCloseTimer:null, notifications:[], members:[], messageReads:new Map(), photos:[], photoOrigins:new Map(), backgroundUrls:new Map(), pendingCommentPhotos:[] };
-let sb, map, lineLayer, baseLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, commentOpenRequestId = 0, pinSearchTimer = null, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null, notificationHistoryOpen = false, closingNotificationFromBack = false, mobilePanelHistoryOpen = false, exitConfirmed = false, photoViewerHistoryOpen = false, closingPhotoViewerFromBack = false, deletedNoticeSpaceId = null;
+let sb, map, lineLayer, baseLayer, locationWatchId = null, sharingSpaceId = null, routeRequestId = 0, commentOpenRequestId = 0, pinSearchTimer = null, locationChannel = null, locationPresenceSpace = null, latestLocationPayload = null, nicknamePromptedForSession = false, safetySyncTimer = null, notificationHistoryOpen = false, closingNotificationFromBack = false, mobilePanelHistoryOpen = false, exitConfirmed = false, photoViewerHistoryOpen = false, closingPhotoViewerFromBack = false, deletedNoticeSpaceId = null, announcementReturnToNotifications = false;
+const isAnnouncementNotification = item => item?.kind === 'system' && (/^\[공지\]\n/.test(String(item.body || '')) || String(item.body || '').startsWith('공지: '));
 const locationBroadcasts = new Map();
 
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2800); }
@@ -64,6 +65,17 @@ async function signOut() {
   closeDialogs();
   await sb.auth.signOut();
 }
+function openAnnouncementDialog() {
+  const notificationDialog = $('#notificationsDialog');
+  announcementReturnToNotifications = notificationDialog.open;
+  // iPhone Safari can fail silently when a second modal dialog is opened above
+  // the notifications dialog. Close it first, then restore it when composing ends.
+  if (notificationDialog.open) {
+    closingNotificationFromBack = true;
+    notificationDialog.close();
+  }
+  requestAnimationFrame(() => showDialog('announcementDialog'));
+}
 function closeMobilePanel(fromHistory=false) {
   const aside = $('.app aside');
   if (!aside?.classList.contains('open')) return;
@@ -79,7 +91,7 @@ function toggleMobilePanel() {
   mobilePanelHistoryOpen = true;
 }
 function initials(name='나') { return name.trim().slice(0,1); }
-const notificationPreferenceDefaults = { pin:true, comment:true, reply:true, message:true, route:true, invite:true, reaction:true, favorite:false, location:false, announcement:true, system:true };
+const notificationPreferenceDefaults = { pin:true, comment:true, reply:true, message:true, route:true, invite:true, reaction:true, favorite:false, location:false, announcement:true, system:true, quiet_mode:false };
 function notificationPreferenceKey() { return `pin-together-notification-preferences:${state.user?.id || 'guest'}`; }
 function loadNotificationPreferences() {
   try { return { ...notificationPreferenceDefaults, ...JSON.parse(localStorage.getItem(notificationPreferenceKey()) || '{}') }; }
@@ -110,13 +122,26 @@ async function syncNotificationPreferences(preferences) {
 }
 async function saveNotificationSettings(event) {
   event.preventDefault();
-  const preferences = Object.fromEntries(Object.keys(notificationPreferenceDefaults).map(kind => [kind, Boolean($(`#notificationSettingsForm [name="${kind}"]`)?.checked)]));
+  const currentPreferences = loadNotificationPreferences();
+  const preferences = Object.fromEntries(Object.keys(notificationPreferenceDefaults).map(kind => [kind, kind === 'quiet_mode' ? Boolean(currentPreferences.quiet_mode) : Boolean($(`#notificationSettingsForm [name="${kind}"]`)?.checked)]));
   try { localStorage.setItem(notificationPreferenceKey(), JSON.stringify(preferences)); }
   catch { return toast('이 브라우저에서는 알림 설정을 저장할 수 없습니다.'); }
   try { await syncNotificationPreferences(preferences); }
   catch { toast('이 기기에는 저장했지만 서버 동기화에는 실패했습니다.'); }
   $('#notificationSettingsDialog').close();
   toast('알림 설정을 저장했습니다.');
+}
+async function saveQuietActivity() {
+  const preferences = { ...loadNotificationPreferences(), quiet_mode:$('#quietActivityToggle').checked };
+  try { localStorage.setItem(notificationPreferenceKey(), JSON.stringify(preferences)); }
+  catch { return toast('이 브라우저에서는 설정을 저장할 수 없습니다.'); }
+  try {
+    await syncNotificationPreferences(preferences);
+    toast(preferences.quiet_mode ? '조용히 활동하기를 켰습니다. 일반 활동 알림은 다른 참여자에게 가지 않습니다.' : '조용히 활동하기를 껐습니다. 일반 활동 알림을 다시 보냅니다.');
+  } catch (error) {
+    $('#quietActivityToggle').checked = !preferences.quiet_mode;
+    toast('조용히 활동하기 저장에 실패했습니다. 데이터베이스 업데이트가 필요할 수 있습니다.');
+  }
 }
 async function sendReleaseNotification(event) {
   event.preventDefault();
@@ -131,13 +156,15 @@ async function sendReleaseNotification(event) {
 }
 async function sendAnnouncement(event) {
   event.preventDefault();
+  if (!state.active || state.active === 'all') return toast('공지를 보낼 여행 공간을 먼저 선택해 주세요.');
   const body = $('#announcementBody').value.trim();
-  if (!body || !confirm('공지 알림을 켠 모든 사용자에게 공지를 보낼까요?')) return;
+  const currentSpace = activeSpaceRecord()?.spaces?.name || '현재 여행 공간';
+  if (!body || !confirm(`'${currentSpace}'의 공지 알림을 켠 참여자에게 공지를 보낼까요?`)) return;
   const dialog = $('#announcementDialog');
   $('#announcementForm').reset();
   if (dialog.open) dialog.close();
   const { data } = await sb.auth.getSession();
-  const response = await fetch('/admin/release-notification', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${data.session?.access_token || ''}` }, body:JSON.stringify({ body, announcement:true }) });
+  const response = await fetch('/admin/release-notification', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${data.session?.access_token || ''}` }, body:JSON.stringify({ body, announcement:true, spaceId:state.active }) });
   if (!response.ok) return toast('전체 공지 발송에 실패했습니다.');
   toast('전체 공지를 발송했습니다.');
 }
@@ -223,17 +250,46 @@ function scheduledDateInputValue(value) {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
+function refreshScheduledCountdowns() {
+  document.querySelectorAll('[data-scheduled-at]').forEach(element => {
+    element.textContent = scheduledCountdownText(element.dataset.scheduledAt);
+  });
+}
+function addCalendarMonths(date, monthCount) {
+  const next = new Date(date);
+  const originalDay = next.getDate();
+  next.setDate(1);
+  next.setMonth(next.getMonth() + monthCount);
+  const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(originalDay, lastDay));
+  return next;
+}
+function calendarDurationText(earlier, later) {
+  let years = later.getFullYear() - earlier.getFullYear();
+  let cursor = addCalendarMonths(earlier, years * 12);
+  if (cursor > later) { years -= 1; cursor = addCalendarMonths(earlier, years * 12); }
+  let months = (later.getFullYear() - cursor.getFullYear()) * 12 + later.getMonth() - cursor.getMonth();
+  let monthCursor = addCalendarMonths(cursor, months);
+  if (monthCursor > later) { months -= 1; monthCursor = addCalendarMonths(cursor, months); }
+  const remainingMinutes = Math.floor(Math.max(0, later.getTime() - monthCursor.getTime()) / 60000);
+  const days = Math.floor(remainingMinutes / 1440);
+  const hours = Math.floor((remainingMinutes % 1440) / 60);
+  const minutes = remainingMinutes % 60;
+  const parts = [[years, '년'], [months, '개월'], [days, '일'], [hours, '시간'], [minutes, '분']]
+    .filter(([amount]) => amount > 0)
+    .map(([amount, unit]) => `${amount}${unit}`);
+  return parts.join(' ') || '0분';
+}
 function scheduledCountdownText(value) {
   if (!value) return '';
-  const minutes = Math.floor(Math.abs(new Date(value).getTime() - Date.now()) / 60000);
-  const days = Math.floor(minutes / 1440);
-  const hours = Math.floor((minutes % 1440) / 60);
-  const remainingMinutes = minutes % 60;
-  const duration = `${days}일 ${hours}시간 ${remainingMinutes}분`;
-  return new Date(value).getTime() > Date.now() ? `여행까지 ${duration} 남음` : `여행 후 ${duration} 지남`;
-}
-function refreshScheduledCountdowns() {
-  document.querySelectorAll('[data-scheduled-at]').forEach(element => { element.textContent = scheduledCountdownText(element.dataset.scheduledAt); });
+  const scheduledDate = new Date(value);
+  const pad = number => String(number).padStart(2, '0');
+  const dateText = `${String(scheduledDate.getFullYear()).slice(-2)}년 ${pad(scheduledDate.getMonth() + 1)}월 ${pad(scheduledDate.getDate())}일 ${pad(scheduledDate.getHours())}시 ${pad(scheduledDate.getMinutes())}분`;
+  const now = new Date();
+  const direction = scheduledDate > now
+    ? `여행까지 ${calendarDurationText(now, scheduledDate)} 남음`
+    : `여행 후 ${calendarDurationText(scheduledDate, now)} 지남`;
+  return `여행일: ${dateText}\n${direction}`;
 }
 function renderTagFilter() {
   const select = $('#tagFilter');
@@ -1085,13 +1141,21 @@ function renderNotifications() {
   const list = $('#notificationsList');
   const titleByKind = { pin:'핀 알림', comment:'댓글', message:'채팅', route:'경로', member:'참가자', invite:'초대', reaction:'반응', favorite:'즐겨찾기', location:'위치 공유', system:'시스템 알림' };
   const destinationText = item => item.kind === 'comment' ? ' · 댓글 보기' : item.kind === 'message' ? ' · 채팅으로 이동' : item.kind === 'route' ? ' · 경로 보기' : item.pin_id ? ' · 핀 위치로 이동' : '';
-  const isAnnouncement = item => item.kind === 'system' && item.body.startsWith('공지: ');
+  const isAnnouncement = isAnnouncementNotification;
   const isDeploymentNotice = item => item.kind === 'system' && /^\[배포:[^\]]+\]\n/.test(item.body);
-  const isPinnedAnnouncement = item => isAnnouncement(item) && item.is_active_announcement;
-  const notificationBody = item => (isAnnouncement(item) ? item.body.slice(4) : item.body).replace(/^\[배포:[^\]]+\]\n/, '');
+  const isPinnedAnnouncement = item => isAnnouncement(item) && item.is_active_announcement && state.active !== 'all' && item.space_id === state.active;
+  const notificationBody = item => {
+    const text = String(item.body || '').replace(/^\[배포:[^\]]+\]\n/, '').replace(/^\[공지\]\n/, '').replace(/^공지:\s*/, '');
+    const actorPrefix = '(^.+?:\\s*)';
+    if (item.kind === 'message') return text.replace(new RegExp(`${actorPrefix}채팅:\\s*`), '$1');
+    if (item.kind === 'pin') return text.replace(new RegExp(`${actorPrefix}(?:새 핀|핀 (?:추가|수정|삭제)):\\s*`), '$1');
+    if (item.kind === 'comment' || item.kind === 'reply') return text.replace(new RegExp(`${actorPrefix}(「[^」]+」에 )?댓글:\\s*`), '$1$2');
+    if (item.kind === 'route') return text.replace(new RegExp(`${actorPrefix}(?:새 경로|경로 (?:변경|삭제)):\\s*`), '$1');
+    return text;
+  };
   const pinnedAnnouncement = state.notifications.find(isPinnedAnnouncement);
   const regularNotifications = state.notifications.filter(item => !isPinnedAnnouncement(item));
-  const itemMarkup = item => `<article class="notification-item notification-target" data-open-notification="${item.id}" tabindex="0" role="button"><div><strong>${escapeHtml(notificationBody(item))}</strong><small>${timeText(item.created_at)}${destinationText(item)}</small></div><button type="button" class="notification-delete" data-delete-notification="${item.id}" aria-label="알림 삭제">×</button></article>`;
+  const itemMarkup = item => `<article class="notification-item notification-target" data-open-notification="${item.id}" tabindex="0" role="button"><div><strong>${escapeHtml(notificationBody(item))}</strong><small>${timeText(item.created_at)}${destinationText(item)}</small></div>${isAnnouncement(item) ? '' : `<button type="button" class="notification-delete" data-delete-notification="${item.id}" aria-label="알림 삭제">삭제</button>`}</article>`;
   list.innerHTML = `${pinnedAnnouncement ? `<section class="active-announcement"><span class="active-announcement-pin" aria-hidden="true">⚑</span><div><strong>공지</strong><span>${escapeHtml(notificationBody(pinnedAnnouncement))}</span></div></section>` : ''}${regularNotifications.map(itemMarkup).join('') || (pinnedAnnouncement ? '' : '<p class="label">새 알림이 없습니다.</p>')}`;
   list.querySelectorAll('[data-open-notification]').forEach(element => {
     const notification = state.notifications.find(item => item.id === element.dataset.openNotification);
@@ -1163,15 +1227,42 @@ async function openNotificationTarget(notificationId) {
   }
 }
 async function deleteNotification(notificationId) {
+  if (isAnnouncementNotification(state.notifications.find(item => item.id === notificationId))) return toast('공지는 삭제할 수 없습니다.');
   const { error } = await sb.from('notifications').delete().eq('id', notificationId).eq('user_id', state.user.id);
   if (error) return toast(`알림 삭제에 실패했습니다: ${error.message}`);
   state.notifications = state.notifications.filter(item => item.id !== notificationId); renderNotifications(); await loadNotifications();
 }
 async function clearNotifications() {
-  if (!state.notifications.length || !confirm('알림을 모두 삭제할까요?')) return;
-  const { error } = await sb.from('notifications').delete().eq('user_id', state.user.id);
+  if (!state.notifications.length) return;
+  $('#clearSystemNotifications').checked = false;
+  $('#clearGeneralNotifications').checked = false;
+  showDialog('clearNotificationsDialog');
+}
+async function submitClearNotifications(event) {
+  event.preventDefault();
+  const clearSystem = $('#clearSystemNotifications').checked;
+  const clearGeneral = $('#clearGeneralNotifications').checked;
+  if (!clearSystem && !clearGeneral) return toast('삭제할 알림 종류를 선택해 주세요.');
+  if (!confirm('선택한 알림을 삭제할까요? 공지는 유지됩니다.')) return;
+  // Deletion must cover the whole account history, not just the 30 rows currently
+  // rendered in the notification panel. Older system notifications otherwise
+  // appear to survive once newer rows disappear.
+  const { data: allNotifications, error: readError } = await sb.from('notifications')
+    .select('id,kind,body')
+    .eq('user_id', state.user.id)
+    .order('created_at', { ascending:false })
+    .limit(1000);
+  if (readError) return toast(`삭제할 알림을 확인하지 못했습니다: ${readError.message}`);
+  const targetIds = (allNotifications || [])
+    .filter(item => !isAnnouncementNotification(item))
+    .filter(item => (item.kind === 'system' && clearSystem) || (item.kind !== 'system' && clearGeneral))
+    .map(item => item.id);
+  if (!targetIds.length) return toast('선택한 종류의 삭제할 알림이 없습니다.');
+  const { error } = await sb.from('notifications').delete().eq('user_id', state.user.id).in('id', targetIds);
   if (error) return toast(`알림 전체 삭제에 실패했습니다: ${error.message}`);
-  state.notifications = []; renderNotifications(); await loadNotifications();
+  state.notifications = state.notifications.filter(item => !targetIds.includes(item.id));
+  $('#clearNotificationsDialog').close();
+  renderNotifications(); await loadNotifications();
 }
 async function openNotifications() {
   $('#announcementButton').classList.remove('hidden');
@@ -1278,6 +1369,7 @@ async function startApp() {
   state.sessionNickname = '';
   $('#profileButton').textContent = initials(activeNickname());
   await refresh();
+  if ('Notification' in window && Notification.permission === 'granted' && 'serviceWorker' in navigator) void enablePushSubscription().catch(() => {});
   const notificationId = new URLSearchParams(location.search).get('notification');
   if (notificationId) {
     const url = new URL(location.href); url.searchParams.delete('notification'); history.replaceState({}, '', url);
@@ -1337,11 +1429,12 @@ function bindUi() {
   });
   window.addEventListener('beforeunload', event => { if (!exitConfirmed) { event.preventDefault(); event.returnValue = ''; } });
   $('#sessionNicknameDialog').addEventListener('cancel', event => event.preventDefault());
+  $('#profileDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
   document.querySelectorAll('[data-auth]').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('[data-auth]').forEach(item => item.classList.toggle('active', item === button)); const signup = button.dataset.auth === 'signup'; $('#nicknameField').classList.toggle('hidden', !signup); $('#nickname').required = signup; $('#authSubmit').textContent = signup ? '회원가입' : '로그인'; $('#authHelp').textContent = signup ? '회원가입에는 실제 이메일 주소를 입력해 주세요.' : '가입한 이메일로 로그인하세요.'; }));
   $('#authForm').addEventListener('submit', async event => { event.preventDefault(); const signup = $('[data-auth].active').dataset.auth === 'signup'; const loginId = $('#email').value.trim(); const masterEmail = Object.entries(masterAccounts).find(([name]) => name.toLowerCase() === loginId.toLowerCase())?.[1] || null; if (signup && masterEmail) return toast('마스터 계정은 회원가입할 수 없습니다.'); if (signup && !loginId.includes('@')) return toast('회원가입에는 이메일 주소를 입력해 주세요.'); const email = masterEmail || loginId, password = $('#password').value; if (signup && password.length < 8) return toast('회원가입 비밀번호는 8자 이상이어야 합니다.'); const result = signup ? await sb.auth.signUp({ email, password, options:{ data:{ nickname:$('#nickname').value.trim() }, emailRedirectTo:`${location.origin}${location.pathname}` } }) : await sb.auth.signInWithPassword({ email, password }); if (result.error) return toast(result.error.message); if (signup && !result.data.session) return toast('가입 확인 메일을 보냈습니다. 이메일 인증 후 로그인하세요.'); });
   $('#spaceSelect').addEventListener('change', async event => { if (locationWatchId !== null) stopLocationShare(true); state.active = event.target.value; state.selected = []; state.route = []; state.draftRoute = []; state.activeRouteId = null; updateMeasure(); await rememberActiveSpace(); await refresh(); });
-  $('#newSpaceButton').addEventListener('click', () => showDialog('spaceDialog')); $('#joinSpaceButton').addEventListener('click', () => showDialog('joinDialog')); $('#inviteButton').addEventListener('click', makeInvite); $('#deleteSpaceButton').addEventListener('click', deleteSpace); $('#leaveTravelSpaceButton').addEventListener('click', () => void leaveCurrentSpace()); $('#restoreDeletedSpaceButton').addEventListener('click', () => void restoreDeletedSpace()); $('#chatButton').addEventListener('click', () => void openChat()); $('#closeChatButton').addEventListener('click', () => $('#chatDialog').close()); $('#chatDialog').addEventListener('click', event => { if (event.target === event.currentTarget) $('#chatDialog').close(); }); $('#notificationButton').addEventListener('click', openNotifications); $('#mobilePanelButton').addEventListener('click', toggleMobilePanel); $('#spaceForm').addEventListener('submit', createSpace); $('#pinForm').addEventListener('submit', createPin); $('#messageForm').addEventListener('submit', sendMessage); $('#messageInput').addEventListener('focus', () => setTimeout(() => scrollChatToBottom(true), 180)); $('#commentForm').addEventListener('submit', addComment); $('#commentPhotoInput').addEventListener('change', event => { state.pendingCommentPhotos.forEach(photo => URL.revokeObjectURL(photo.url)); const files = [...event.target.files]; state.pendingCommentPhotos = files.slice(0,5).map(file => ({ file, tags:'', url:URL.createObjectURL(file) })); if (files.length > 5) toast('사진은 최대 5장까지 선택할 수 있습니다.'); renderCommentPhotoPreview(); }); $('#photoSearch').addEventListener('input', renderPhotoGallery); $('#photoViewerDialog').addEventListener('close', () => { $('#photoViewerImage').removeAttribute('src'); $('#photoViewerStatus').textContent = ''; if (photoViewerHistoryOpen && !closingPhotoViewerFromBack) { photoViewerHistoryOpen = false; history.back(); } closingPhotoViewerFromBack = false; }); bindPhotoViewer(); $('#profileButton').addEventListener('click', () => { $('#profileNickname').value = state.profile.nickname; $('#profilePassword').value = ''; $('#profilePasswordConfirm').value = ''; $('#releaseNotificationButton').classList.toggle('hidden', !isMasterUser()); showDialog('profileDialog'); requestAnimationFrame(() => $('#profileDialog').focus({ preventScroll:true })); }); $('#profileForm').addEventListener('submit', saveProfile); $('#releaseNotificationButton').addEventListener('click', () => showDialog('releaseNotificationDialog')); $('#releaseNotificationForm').addEventListener('submit', sendReleaseNotification); $('#ownerLeaveForm').addEventListener('submit', transferOwnershipAndLeave); $('#notificationSettingsButton').addEventListener('click', openNotificationSettings); $('#notificationSettingsForm').addEventListener('submit', saveNotificationSettings); $('#notificationPermissionButton').addEventListener('click', () => void requestNotificationPermission()); $('#forgotPasswordButton').addEventListener('click', () => { $('#forgotPasswordEmail').value = $('#email').value.trim(); showDialog('forgotPasswordDialog'); }); $('#forgotPasswordForm').addEventListener('submit', requestPasswordReset); $('#newPasswordForm').addEventListener('submit', setRecoveredPassword);
-  $('#joinForm').addEventListener('submit', joinSpace); $('#sessionNicknameForm').addEventListener('submit', saveSessionNickname); $('#profileSignOutButton').addEventListener('click', () => void signOut()); $('#clearNotificationsButton').addEventListener('click', clearNotifications); $('#announcementButton').addEventListener('click', () => showDialog('announcementDialog')); $('#announcementForm').addEventListener('submit', sendAnnouncement);
+  $('#newSpaceButton').addEventListener('click', () => showDialog('spaceDialog')); $('#joinSpaceButton').addEventListener('click', () => showDialog('joinDialog')); $('#inviteButton').addEventListener('click', makeInvite); $('#deleteSpaceButton').addEventListener('click', deleteSpace); $('#leaveTravelSpaceButton').addEventListener('click', () => void leaveCurrentSpace()); $('#restoreDeletedSpaceButton').addEventListener('click', () => void restoreDeletedSpace()); $('#chatButton').addEventListener('click', () => void openChat()); $('#closeChatButton').addEventListener('click', () => $('#chatDialog').close()); $('#chatDialog').addEventListener('click', event => { if (event.target === event.currentTarget) $('#chatDialog').close(); }); $('#notificationButton').addEventListener('click', openNotifications); $('#mobilePanelButton').addEventListener('click', toggleMobilePanel); $('#spaceForm').addEventListener('submit', createSpace); $('#pinForm').addEventListener('submit', createPin); $('#messageForm').addEventListener('submit', sendMessage); $('#messageInput').addEventListener('focus', () => setTimeout(() => scrollChatToBottom(true), 180)); $('#commentForm').addEventListener('submit', addComment); $('#commentPhotoInput').addEventListener('change', event => { state.pendingCommentPhotos.forEach(photo => URL.revokeObjectURL(photo.url)); const files = [...event.target.files]; state.pendingCommentPhotos = files.slice(0,5).map(file => ({ file, tags:'', url:URL.createObjectURL(file) })); if (files.length > 5) toast('사진은 최대 5장까지 선택할 수 있습니다.'); renderCommentPhotoPreview(); }); $('#photoSearch').addEventListener('input', renderPhotoGallery); $('#photoViewerDialog').addEventListener('close', () => { $('#photoViewerImage').removeAttribute('src'); $('#photoViewerStatus').textContent = ''; if (photoViewerHistoryOpen && !closingPhotoViewerFromBack) { photoViewerHistoryOpen = false; history.back(); } closingPhotoViewerFromBack = false; }); bindPhotoViewer(); $('#profileButton').addEventListener('click', () => { $('#profileNickname').value = state.profile.nickname; $('#profilePassword').value = ''; $('#profilePasswordConfirm').value = ''; $('#quietActivityToggle').checked = Boolean(loadNotificationPreferences().quiet_mode); $('#releaseNotificationButton').classList.toggle('hidden', !isMasterUser()); showDialog('profileDialog'); requestAnimationFrame(() => $('#profileDialog').focus({ preventScroll:true })); }); $('#profileForm').addEventListener('submit', saveProfile); $('#quietActivityToggle').addEventListener('change', () => void saveQuietActivity()); $('#releaseNotificationButton').addEventListener('click', () => showDialog('releaseNotificationDialog')); $('#releaseNotificationForm').addEventListener('submit', sendReleaseNotification); $('#ownerLeaveForm').addEventListener('submit', transferOwnershipAndLeave); $('#notificationSettingsButton').addEventListener('click', openNotificationSettings); $('#notificationSettingsForm').addEventListener('submit', saveNotificationSettings); $('#notificationPermissionButton').addEventListener('click', () => void requestNotificationPermission()); $('#forgotPasswordButton').addEventListener('click', () => { $('#forgotPasswordEmail').value = $('#email').value.trim(); showDialog('forgotPasswordDialog'); }); $('#forgotPasswordForm').addEventListener('submit', requestPasswordReset); $('#newPasswordForm').addEventListener('submit', setRecoveredPassword);
+  $('#joinForm').addEventListener('submit', joinSpace); $('#sessionNicknameForm').addEventListener('submit', saveSessionNickname); $('#profileSignOutButton').addEventListener('click', () => void signOut()); $('#clearNotificationsButton').addEventListener('click', clearNotifications); $('#clearNotificationsForm').addEventListener('submit', submitClearNotifications); $('#announcementButton').addEventListener('click', openAnnouncementDialog); $('#announcementForm').addEventListener('submit', sendAnnouncement); $('#announcementDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); }); $('#announcementDialog').addEventListener('close', () => { if (!announcementReturnToNotifications) return; announcementReturnToNotifications = false; requestAnimationFrame(() => void openNotifications()); });
   $('#addPinButton').addEventListener('click', () => { if (state.active === 'all') return toast('핀을 추가할 여행 공간을 선택하세요.'); state.pending = 'add'; $('#addPinButton').classList.add('active'); toast('지도에서 핀을 놓을 위치를 선택하세요.'); });
   $('#routeButton').addEventListener('click', () => {
     if (state.routeMode) {
@@ -1372,4 +1465,15 @@ function bindUi() {
 }
 
 if (!configured) show('setupView');
-else { sb = createClient(PROJECT_URL, SUPABASE_PUBLISHABLE_KEY); bindUi(); sb.auth.onAuthStateChange(async (event, session) => { state.user = session?.user || null; if (!state.user) nicknamePromptedForSession = false; if (event === 'PASSWORD_RECOVERY' && state.user) { show('authView'); showDialog('newPasswordDialog'); return; } if (state.user) { try { await startApp(); } catch (error) { toast(error.message); } } else show('authView'); }); }
+else {
+  sb = createClient(PROJECT_URL, SUPABASE_PUBLISHABLE_KEY);
+  // Always reveal a usable first screen before optional UI enhancements run.
+  // Otherwise one failed listener can leave every view hidden as a white page.
+  show('authView');
+  try { bindUi(); }
+  catch (error) {
+    console.error('UI initialization failed.', error);
+    toast('화면을 준비하는 중 문제가 생겼습니다. 새로고침해 주세요.');
+  }
+  sb.auth.onAuthStateChange(async (event, session) => { state.user = session?.user || null; if (!state.user) nicknamePromptedForSession = false; if (event === 'PASSWORD_RECOVERY' && state.user) { show('authView'); showDialog('newPasswordDialog'); return; } if (state.user) { try { await startApp(); } catch (error) { toast(error.message); } } else show('authView'); });
+}
