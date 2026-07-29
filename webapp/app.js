@@ -531,10 +531,20 @@ function openPinPollDialog(pinId) {
   showDialog('pinPollDialog');
 }
 function pollVoterNames(poll, optionId) {
-  if (poll.is_anonymous) return ['익명'];
+  const votes = poll.votes.filter(vote => vote.option_id === optionId);
+  if (poll.is_anonymous) return votes.map(() => '익명');
   const names = new Map(state.members.map(member => [member.user_id, member.nickname]));
   names.set(state.user?.id, activeNickname());
-  return poll.votes.filter(vote => vote.option_id === optionId).map(vote => names.get(vote.voter_id) || '참여자');
+  return votes.map(vote => names.get(vote.voter_id) || '참여자');
+}
+function openPollVoters(pollId, optionId) {
+  const poll = state.polls.find(item => item.id === pollId), option = poll?.options.find(item => item.id === optionId);
+  if (!poll || !option) return;
+  const names = pollVoterNames(poll, optionId);
+  $('#pollVotersTitle').textContent = `${option.label} · 투표자`;
+  $('#pollVotersSummary').textContent = poll.is_anonymous ? `${names.length}표 · 익명 투표` : `${names.length}명 참여`;
+  $('#pollVotersList').innerHTML = names.length ? names.map(name => `<p>${escapeHtml(name)}</p>`).join('') : '<p class="label">아직 투표한 사람이 없습니다.</p>';
+  showDialog('pollVotersDialog');
 }
 function pollCreatorName(poll) {
   if (poll.creator_id === state.user?.id) return activeNickname();
@@ -551,10 +561,9 @@ function renderPollDetail(pollId) {
   $('#pollDetailPins').innerHTML = linkedPins(poll).map(pin => `<button type="button" class="poll-linked-pin" data-open-linked-pin="${pin.id}">📍 ${escapeHtml(pin.title)}</button>`).join('');
   $('#pollDetailOptions').innerHTML = poll.options.map((option, index) => {
     const votes = counts[index], selected = myVotes.includes(option.id), percentage = total ? Math.round((votes / total) * 100) : 0;
-    const voterNames = pollVoterNames(poll, option.id);
-    const tooltip = voterNames.length ? `<span class="poll-voter-tooltip">${voterNames.map(name => `<span>${escapeHtml(name)}</span>`).join('')}</span>` : '';
-    if (active) return `<button type="button" class="poll-option ${selected ? 'selected' : ''}" data-vote-option="${option.id}" data-vote-poll="${poll.id}"><span>${poll.allow_multiple ? (selected ? '☑' : '☐') : (selected ? '◉' : '○')}</span><span>${escapeHtml(option.label)}</span><em>${votes}표</em>${tooltip}</button>`;
-    return `<article class="poll-result ${votes && votes === highest ? 'winner' : ''}"><div><strong>${escapeHtml(option.label)}${votes && votes === highest ? ' · 최다 득표' : ''}</strong><span>${votes}표 · ${percentage}%</span>${tooltip}</div><i><b style="width:${percentage}%"></b></i></article>`;
+    const voterButton = `<button type="button" class="poll-voter-button" data-poll-voters="${poll.id}" data-poll-option="${option.id}" aria-label="${escapeHtml(option.label)} 투표자 ${votes}명 보기">참여자 <b>${votes}명</b></button>`;
+    if (active) return `<article class="poll-option ${selected ? 'selected' : ''}"><button type="button" class="poll-vote-option" data-vote-option="${option.id}" data-vote-poll="${poll.id}"><span>${poll.allow_multiple ? (selected ? '☑' : '☐') : (selected ? '◉' : '○')}</span><span>${escapeHtml(option.label)}</span></button>${voterButton}</article>`;
+    return `<article class="poll-result ${votes && votes === highest ? 'winner' : ''}"><div><strong>${escapeHtml(option.label)}${votes && votes === highest ? ' · 최다 득표' : ''}</strong>${voterButton}</div><i><b style="width:${percentage}%"></b></i><small>${votes}표 · ${percentage}%</small></article>`;
   }).join('') || '<p class="label">등록된 항목이 없습니다.</p>';
   $('#pollDetailAddArea').classList.toggle('hidden', !active);
   $('#pollDetailAddButton').dataset.pollId = poll.id;
@@ -562,6 +571,7 @@ function renderPollDetail(pollId) {
   $('#deletePollButton').dataset.pollId = poll.id;
   $('#pollDetailOptionDraft').value = '';
   $('#pollDetailOptions').querySelectorAll('[data-vote-option]').forEach(button => button.addEventListener('click', () => void castPollVote(button.dataset.votePoll, button.dataset.voteOption)));
+  $('#pollDetailOptions').querySelectorAll('[data-poll-voters]').forEach(button => button.addEventListener('click', () => openPollVoters(button.dataset.pollVoters, button.dataset.pollOption)));
   $('#pollDetailPins').querySelectorAll('[data-open-linked-pin]').forEach(button => button.addEventListener('click', () => focusLinkedPin(button.dataset.openLinkedPin)));
 }
 function openPollDetail(pollId) { renderPollDetail(pollId); showDialog('pollDetailDialog'); }
@@ -1769,9 +1779,10 @@ function bindUi() {
   $('#pollLinkButton').addEventListener('click', () => openPollPinPicker('create'));
   $('#pollPinSearch').addEventListener('input', renderPollPinPicker);
   $('#deletePollButton').addEventListener('click', () => void deletePoll($('#deletePollButton').dataset.pollId));
+  $('#pollDetailDialog').addEventListener('close', () => { if ($('#pollVotersDialog').open) $('#pollVotersDialog').close(); });
   $('#confirmPollPinButton').addEventListener('click', () => { if (!selectedPollPinId) return toast('연결할 핀을 선택해 주세요.'); $('#pollPinPickerDialog').close(); if (pollPinPickerTarget === 'create') renderPollCreateLinkedPin(); });
   $('#createPinLinkedPollButton').addEventListener('click', () => { $('#pinPollDialog').close(); openPollCreateDialog(pinPollDialogPinId); });
-  ['pollCreateDialog', 'pollDetailDialog', 'pollPinPickerDialog', 'pinPollDialog'].forEach(id => $(`#${id}`).addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); }));
+  ['pollCreateDialog', 'pollDetailDialog', 'pollVotersDialog', 'pollPinPickerDialog', 'pinPollDialog'].forEach(id => $(`#${id}`).addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); }));
   $('#profileDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
   document.querySelectorAll('[data-auth]').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('[data-auth]').forEach(item => item.classList.toggle('active', item === button)); const signup = button.dataset.auth === 'signup'; $('#nicknameField').classList.toggle('hidden', !signup); $('#nickname').required = signup; $('#authSubmit').textContent = signup ? '회원가입' : '로그인'; $('#authHelp').textContent = signup ? '회원가입에는 실제 이메일 주소를 입력해 주세요.' : '가입한 이메일로 로그인하세요.'; }));
   $('#authForm').addEventListener('submit', async event => { event.preventDefault(); const signup = $('[data-auth].active').dataset.auth === 'signup'; const loginId = $('#email').value.trim(); const masterEmail = Object.entries(masterAccounts).find(([name]) => name.toLowerCase() === loginId.toLowerCase())?.[1] || null; if (signup && masterEmail) return toast('마스터 계정은 회원가입할 수 없습니다.'); if (signup && !loginId.includes('@')) return toast('회원가입에는 이메일 주소를 입력해 주세요.'); const email = masterEmail || loginId, password = $('#password').value; if (signup && password.length < 8) return toast('회원가입 비밀번호는 8자 이상이어야 합니다.'); const result = signup ? await sb.auth.signUp({ email, password, options:{ data:{ nickname:$('#nickname').value.trim() }, emailRedirectTo:`${location.origin}${location.pathname}` } }) : await sb.auth.signInWithPassword({ email, password }); if (result.error) return toast(result.error.message); if (signup && !result.data.session) return toast('가입 확인 메일을 보냈습니다. 이메일 인증 후 로그인하세요.'); });
