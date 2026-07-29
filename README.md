@@ -19,15 +19,6 @@
 - 여행 공간별 최신 공지 하나 고정, 이전 공지는 일반 알림 기록으로 보관
 - 각 Cloudflare 배포 버전마다 업데이트 알림 자동 생성
 
-## 빠른 실행
-
-```powershell
-cd "C:\Users\yunsu\Desktop\실시간지도공유\webapp"
-node server.mjs
-```
-
-브라우저에서 `http://localhost:4173`을 엽니다. 운영 배포는 같은 폴더에서 `npx.cmd wrangler deploy`를 실행합니다.
-
 ## 프로젝트 구조
 
 | 경로 | 설명 |
