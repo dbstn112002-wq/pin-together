@@ -1,8 +1,8 @@
 import { buildPushPayload } from '@block65/webcrypto-web-push';
 
-const defaultPreferences = { pin:true, comment:true, reply:true, message:true, route:true, invite:true, reaction:true, favorite:false, location:false, announcement:true, system:true };
-const preferenceByKind = { pin:'pin', comment:'comment', message:'message', route:'route', member:'invite', invite:'invite', reaction:'reaction', favorite:'favorite', location:'location' };
-const notificationTitles = { pin:'핀 알림', comment:'댓글', message:'채팅', route:'경로', member:'참가자', invite:'초대', reaction:'반응', favorite:'즐겨찾기', location:'위치 공유', system:'시스템 알림' };
+const defaultPreferences = { pin:true, comment:true, reply:true, message:true, route:true, invite:true, reaction:true, favorite:false, location:false, checklist:true, poll:true, announcement:true, system:true };
+const preferenceByKind = { pin:'pin', comment:'comment', message:'message', route:'route', member:'invite', invite:'invite', reaction:'reaction', favorite:'favorite', location:'location', checklist:'checklist', poll:'poll' };
+const notificationTitles = { pin:'핀 알림', comment:'댓글', message:'채팅', route:'경로', member:'참가자', invite:'초대', reaction:'반응', favorite:'즐겨찾기', location:'위치 공유', checklist:'체크리스트', poll:'투표', system:'시스템 알림' };
 // Push begins from this production activation point; older in-app history must never be replayed.
 const PUSH_ENABLED_AT = new Date('2026-07-28T09:46:00.000Z');
 const DEPLOYMENT_PUSH_MAX_AGE_MS = 10 * 60 * 1000;
@@ -17,7 +17,7 @@ function deploymentKey(value='') {
 }
 const announcementMarker = body => /^\[공지\]\n/.test(body || '') || String(body || '').startsWith('공지: ');
 function visibleNotificationBody(body, kind) {
-  const text = String(body || '').replace(/^\[배포:[^\]]+\]\n/, '').replace(/^\[공지\]\n/, '').replace(/^공지:\s*/, '');
+  const text = String(body || '').replace(/^\[배포:[^\]]+\]\n/, '').replace(/^\[공지\]\n/, '').replace(/^공지:\s*/, '').replace(/^([^:\n]+):\s*/, '$1 : ');
   const actorPrefix = '(^.+?:\\s*)';
   if (kind === 'message') return text.replace(new RegExp(`${actorPrefix}채팅:\\s*`), '$1');
   if (kind === 'pin') return text.replace(new RegExp(`${actorPrefix}(?:새 핀|핀 (?:추가|수정|삭제)):\\s*`), '$1');
@@ -179,15 +179,19 @@ async function announceCurrentDeployment(env) {
   return {};
 }
 
-async function triggerDeploymentNotification(env) {
+async function triggerDeploymentNotification(env, expectedReleaseId='') {
+  const releaseText = env.RELEASE_ANNOUNCEMENT?.trim() || '새 업데이트가 배포되었습니다. 변경 내용을 확인해 주세요.';
+  const releaseId = deploymentKey(releaseText);
+  if (expectedReleaseId && expectedReleaseId !== releaseId) return Response.json({ releaseId, ready:false }, { status:409 });
   const delivery = await announceCurrentDeployment(env);
-  return Response.json({ delivery:delivery || {} });
+  return Response.json({ releaseId, releaseText, ready:true, delivery:delivery || {} });
 }
 
 export default {
   fetch(request, env) {
     if (new URL(request.url).pathname === '/internal/immediate-push' && request.method === 'POST') return sendImmediatePush(request, env);
     if (new URL(request.url).pathname === '/internal/deployment-notification' && request.method === 'POST') return triggerDeploymentNotification(env);
+    if (new URL(request.url).pathname === '/internal/deployment-notification/v2' && request.method === 'POST') return triggerDeploymentNotification(env, new URL(request.url).searchParams.get('expected') || '');
     if (new URL(request.url).pathname === '/admin/release-notification' && request.method === 'POST') return sendReleaseNotification(request, env);
     return env.ASSETS.fetch(request);
   },

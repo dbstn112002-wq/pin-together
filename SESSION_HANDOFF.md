@@ -1,39 +1,54 @@
-# 핀투게더 인수인계
+# 다음 작업 세션 인수인계
 
-최종 갱신: 2026-07-28 KST
+## 프로젝트
 
-## 배포
+- 경로: `C:\Users\yunsu\Desktop\실시간지도공유`
+- 운영 사이트: `https://pintogether-photo.com`
+- 프론트/Worker: `webapp/`
+- DB: Supabase
+- 배포: Cloudflare Worker `dry-butterfly-8a6f`
 
-- 운영 사이트: https://pintogether-photo.com
-- Worker: `dry-butterfly-8a6f`
-- 배포: `cd webapp; npx.cmd wrangler deploy`
-- `version_metadata` 바인딩을 사용한다. 새 배포 버전은 cron에서 한 번만 시스템 업데이트 알림을 생성한다.
-- 배포 안내 문구는 `webapp/wrangler.jsonc`의 `RELEASE_ANNOUNCEMENT`를 현재 변경 내용으로 갱신한다.
+## 기본 명령
 
-## 주요 파일
+```powershell
+cd C:\Users\yunsu\Desktop\실시간지도공유
+node --check webapp\app.js
+node --check webapp\worker.js
+git diff --check
+cd webapp
+npx.cmd wrangler deploy
+```
 
-| 경로 | 역할 |
-| --- | --- |
-| `webapp/app.js` | 인증, 지도, 핀, 댓글, 채팅, 알림, PWA 화면 로직 |
-| `webapp/worker.js` | Web Push, 전체 공지, 배포 업데이트 알림, 공간 영구 삭제 |
-| `webapp/sw.js` | 푸시 클릭과 앱 화면 이동 |
-| `webapp/wrangler.jsonc` | Worker·cron·배포 알림 문구 설정 |
-| `supabase/README.md` | 운영 DB SQL 실행 기준 |
+`npx.cmd wrangler deploy`는 사이트만 배포하며 시스템 업데이트 푸시는 보내지 않는다.
 
-## 최근 반영 사항
+일반 푸시는 DB의 `immediate-push-migration.sql` 트리거로 즉시 전송한다. 이 트리거가 적용되지 않은 경우에도 Worker가 매분 미전송 알림을 재시도한다.
 
-- 핀 일정 날짜·시간 지정과 카운트다운
-- 공지/시스템 업데이트 수신 설정 분리
-- 최신 공지 한 건 고정, 새 공지 등록 시 이전 공지는 일반 알림으로 유지
-- 활동 알림 본문에 작성자 닉네임 표시
-- 배포 버전별 자동 업데이트 알림
+```powershell
+npm.cmd run deploy:production
+```
+
+위 명령은 배포 후 현재 `RELEASE_ANNOUNCEMENT` 문구가 실제 Worker에 적용된 것을 확인하고 시스템 업데이트 푸시까지 보낸다. 업데이트 푸시가 필요할 때만 사용한다.
+
+## 체크리스트 기능 상태
+
+- 개인/공간 체크리스트, 항목, 체크 상태 SQL: `supabase/checklists-migration.sql`
+- 사용 전 Supabase SQL Editor에서 위 파일 전체를 실행해야 한다.
+- 메뉴 체크리스트 탭은 목록만 표시하며, 목록을 누르면 별도 상세창에서 항목을 관리한다.
+- 개인·공간·핀 체크리스트 모두 항목 추가, 문구 수정, 삭제, 순서 변경, 개별·전체 체크를 지원한다.
+- 핀 체크리스트 화면은 상단의 연결된 목록 관리와 하단의 개인·공간 원본 목록 가져오기를 분리한다. 핀에 복사한 목록을 삭제해도 원본은 유지된다.
+- 핀 생성 시에도 기존 개인·공간 체크리스트를 여러 개 선택해 독립 복사할 수 있다.
+- 체크리스트 알림 설정을 켠 참여자에게는 공간·핀 목록 생성·삭제·가져오기와 항목 추가·수정·삭제·체크/해제 알림을 보낸다. 핀에 목록을 생성·가져올 때는 사용자·핀·목록 이름을 담은 한 건만 보내며, 함께 복사한 초기 항목별 알림은 보내지 않는다. 개인 목록은 공간에 속하지 않아 알리지 않는다.
+- 투표 알림 설정을 켠 현재 공간 참여자에게는 새 투표 생성 알림을 보내며, 투표 생성자만 상세창에서 투표를 삭제할 수 있다.
+- 지도 핀 정보창은 댓글·체크리스트 핵심 버튼과 더보기 메뉴(즐겨찾기·투표·핀 편집), 최하단 반응 이모지 영역으로 구성된다.
 
 ## 다음 작업 전 확인
 
-1. Supabase SQL Editor에서 미실행 최신 마이그레이션을 실행했는지 확인한다.
-2. 두 계정으로 공지·시스템 알림 수신 설정과 푸시를 검증한다.
-3. `RELEASE_ANNOUNCEMENT`를 배포 변경 내용에 맞게 갱신한 뒤 배포한다.
+1. Supabase SQL Editor에서 `pin-icons-migration.sql`, `polls-migration.sql`, `checklists-migration.sql`을 실행했는지 확인한다.
+2. 두 계정으로 공간 체크리스트 활동 알림과 새 투표 알림, 핀 체크리스트 복사와 항목 편집을 검증한다.
+3. `RELEASE_ANNOUNCEMENT`를 배포 변경 내용에 맞게 갱신한 뒤 업데이트 푸시가 필요한 경우에만 `npm.cmd run deploy:production`을 사용한다.
 
-## 작업 공간 주의
+## 주의
 
-개인 메모·스크린샷·`Pic/` 사진은 사용자 파일이다. 커밋·삭제하지 않는다.
+- 개인 메모·이미지 폴더와 별도 `.txt` 파일은 건드리지 않는다.
+- 현재 변경사항은 아직 Git 커밋/푸시되지 않았을 수 있으므로 `git status --short`로 먼저 확인한다.
+- 배포 시스템 알림 문구는 `webapp/wrangler.jsonc`의 `RELEASE_ANNOUNCEMENT`에서 변경한다.

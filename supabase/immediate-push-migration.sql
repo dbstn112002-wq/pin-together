@@ -8,6 +8,7 @@ create index if not exists notifications_pending_push_claim_idx
 
 -- 공지는 어떤 기기·구버전 화면에서도 개별 또는 전체 삭제할 수 없습니다.
 drop policy if exists "users delete own notifications" on public.notifications;
+drop policy if exists "users delete own non-announcement notifications" on public.notifications;
 create policy "users delete own non-announcement notifications"
   on public.notifications for delete to authenticated
   using (user_id = auth.uid() and body not like '공지: %' and body not like '[공지]%');
